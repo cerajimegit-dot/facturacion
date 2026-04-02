@@ -1,0 +1,49 @@
+"""Serializers for Producto, Variante, PrecioLista, Categoria."""
+from rest_framework import serializers
+from .models import Producto, Variante, PrecioLista, Categoria
+
+
+class CategoriaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Categoria
+        fields = ['id', 'nombre', 'descripcion', 'padre', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class VarianteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Variante
+        fields = ['id', 'nombre', 'sku_variante', 'precio_diferencial', 'activo']
+        read_only_fields = ['id']
+
+
+class PrecioListaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrecioLista
+        fields = [
+            'id', 'nombre', 'producto', 'precio', 'moneda',
+            'vigente_desde', 'vigente_hasta', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class ProductoSerializer(serializers.ModelSerializer):
+    variantes = VarianteSerializer(many=True, read_only=True)
+    categoria_nombre = serializers.CharField(source='categoria.nombre', read_only=True)
+
+    class Meta:
+        model = Producto
+        fields = [
+            'id', 'sku', 'nombre', 'descripcion', 'tipo',
+            'categoria', 'categoria_nombre',
+            'precio_unitario', 'costo', 'moneda',
+            'impuesto_porcentaje', 'imagen_url', 'imagen', 'activo',
+            'variantes', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class ProductoListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Producto
+        fields = ['id', 'sku', 'nombre', 'tipo', 'precio_unitario', 'activo']
