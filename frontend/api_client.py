@@ -2,7 +2,8 @@
 import requests
 import streamlit as st
 
-API_BASE = "http://127.0.0.1:8000/api/v1"
+import os
+API_BASE = os.environ.get('API_BASE_URL', 'http://127.0.0.1:8000/api/v1')
 
 
 def _headers():
