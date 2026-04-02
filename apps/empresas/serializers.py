@@ -18,4 +18,7 @@ class EmpresaSerializer(serializers.ModelSerializer):
 class EmpresaListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Empresa
-        fields = ['id', 'codigo', 'nombre', 'moneda_principal', 'activa']
+        fields = [
+            'id', 'codigo', 'nombre', 'ruc', 'telefono', 'email',
+            'direccion', 'moneda_principal', 'activa', 'razon_social',
+        ]

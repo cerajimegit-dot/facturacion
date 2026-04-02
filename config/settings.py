@@ -8,7 +8,16 @@ from decouple import config, Csv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-me-in-production-!@#$%^&*()')
+def _normalize_env_value(value):
+    if value is None:
+        return value
+    value = value.strip()
+    # Eliminar comillas simples/dobles y comillas de estilo tipográfico accidental
+    for ch in ['"', "'", '«', '»', '“', '”', '‘', '’', '`']:
+        value = value.strip(ch)
+    return value
+
+SECRET_KEY = _normalize_env_value(config('SECRET_KEY', default='django-insecure-change-me-in-production-!@#$%^&*()'))
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*', cast=Csv())
 
@@ -82,13 +91,13 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'OPTIONS': {
-            'options': '-c search_path=public',
+            'options': '-c search_path=public -c client_encoding=UTF8',
         },
-        'NAME': config('DB_NAME', default='facturacion'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default='postgres'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+        'NAME': _normalize_env_value(config('DB_NAME', default='facturacion')),
+        'USER': _normalize_env_value(config('DB_USER', default='postgres')),
+        'PASSWORD': _normalize_env_value(config('DB_PASSWORD', default='postgres')),
+        'HOST': _normalize_env_value(config('DB_HOST', default='localhost')),
+        'PORT': _normalize_env_value(config('DB_PORT', default='5432')),
     }
 }
 

@@ -1,0 +1,43 @@
+Pasos para levantar el proyecto Facturación (backend + frontend)
+
+1. Abrir PowerShell y moverse al root del proyecto:
+   cd C:\Users\prueb\CascadeProjects\facturacion
+
+2. Crear/activar el entorno virtual:
+   python -m venv venv
+   venv\scripts\activate
+
+3. Instalar dependencias:
+   python -m pip install --upgrade pip
+   python -m pip install -r requirements.txt
+
+4. Asegurar la base de datos:
+   - Si trabajas con SQLite (settings_test): no se requiere DB externa.
+   - Si trabajas con PostgreSQL (config/settings.py): asegúrate de tener postgres accesible.
+
+5. Ejecutar migraciones:
+   python manage.py migrate --settings=config.settings_test
+   (o para DB postgres comúm: python manage.py migrate)
+
+6. Iniciar backend en una terminal:
+   python manage.py runserver 0.0.0.0:8000
+   - URL: http://127.0.0.1:8000
+
+7. Iniciar frontend en otra terminal:
+   cd C:\Users\prueb\CascadeProjects\facturacion\frontend
+   streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+   - URL: http://127.0.0.1:8501
+
+8. Verificación rápida:
+   - Navega a las URLs anteriores.
+   - Comprueba que el login funciona y que puedes acceder a Empresas.
+
+9. Comandos opcionales:
+   - Crear superusuario: python manage.py createsuperuser
+   - Correr tests: python -m pytest -q tests
+
+10. Si usas Docker (alternativa):
+    docker compose up -d db redis
+    docker compose up -d web celery celery-beat
+    docker compose exec web python manage.py migrate
+    docker compose exec web python manage.py createsuperuser

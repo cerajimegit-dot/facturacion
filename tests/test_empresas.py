@@ -33,6 +33,13 @@ class TestEmpresaCRUD:
         codigos = [e['codigo'] for e in response.data['results']]
         assert 'EMP001' in codigos
         assert 'OTHER' not in codigos
+        # Ensure list serializer exposes fields required by frontend
+        empresa_data = next(e for e in response.data['results'] if e['codigo'] == 'EMP001')
+        assert 'ruc' in empresa_data
+        assert 'telefono' in empresa_data
+        assert 'email' in empresa_data
+        assert 'direccion' in empresa_data
+
 
     def test_detalle_empresa(self, authenticated_client, empresa, membership):
         url = reverse('empresa-detail', kwargs={'pk': str(empresa.id)})

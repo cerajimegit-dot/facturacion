@@ -340,6 +340,27 @@ pytest tests/test_importacion.py -v
 11. GET /api/v1/reportes/dashboard/     → Ver KPIs
 ```
 
+## Configuración PostgreSQL local
+
+1. Asegúrate que PostgreSQL está instalado y corriendo en localhost:5432.
+2. Verifica que exista la base de datos y el usuario:
+
+```bash
+psql -U postgres -h localhost -p 5432 -c "SELECT datname FROM pg_database;"
+```
+
+3. Si no existe, crea la base de datos `facturacion` (o según tu .env):
+
+```bash
+psql -U postgres -h localhost -p 5432 -c "CREATE DATABASE facturacion;"
+```
+
+4. Puedes usar el script de soporte:
+
+```bash
+python scripts/create_postgres_db.py
+```
+
 ## Variables de Entorno
 
 | Variable | Default | Descripción |
