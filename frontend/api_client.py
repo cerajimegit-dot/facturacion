@@ -30,7 +30,23 @@ def _handle(resp):
         data = None
     if resp.ok:
         return data, None
-    msg = str(data) if data else f"HTTP {resp.status_code}"
+    
+    # Better error handling
+    if data and isinstance(data, dict):
+        # Extract field-level errors if they exist
+        errors = []
+        for key, value in data.items():
+            if isinstance(value, list):
+                errors.append(f"{key}: {', '.join(str(v) for v in value)}")
+            else:
+                errors.append(f"{key}: {value}")
+        if errors:
+            msg = " | ".join(errors)
+        else:
+            msg = str(data)
+    else:
+        msg = str(data) if data else f"HTTP {resp.status_code}"
+    
     return None, msg
 
 

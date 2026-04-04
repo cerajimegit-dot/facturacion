@@ -43,7 +43,28 @@ class ProductoSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+class ProductoUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating productos - makes SKU optional."""
+    variantes = VarianteSerializer(many=True, read_only=True)
+    categoria_nombre = serializers.CharField(source='categoria.nombre', read_only=True)
+
+    class Meta:
+        model = Producto
+        fields = [
+            'id', 'sku', 'nombre', 'descripcion', 'tipo',
+            'categoria', 'categoria_nombre',
+            'precio_unitario', 'costo', 'moneda',
+            'impuesto_porcentaje', 'imagen_url', 'imagen', 'activo',
+            'variantes', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'sku', 'created_at', 'updated_at']  # SKU is read-only on updates
+
+
 class ProductoListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Producto
-        fields = ['id', 'sku', 'nombre', 'tipo', 'precio_unitario', 'activo']
+        fields = [
+            'id', 'sku', 'nombre', 'descripcion', 'tipo',
+            'categoria', 'precio_unitario', 'costo', 'moneda',
+            'impuesto_porcentaje', 'imagen_url', 'activo',
+        ]

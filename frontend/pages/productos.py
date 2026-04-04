@@ -2,10 +2,11 @@
 import streamlit as st
 import pandas as pd
 import api_client as api
-from helpers import results, fmt
+from helpers import results, fmt, notify_success, notify_error, notify_info, show_session_notifications
 
 
 def render():
+    show_session_notifications()
     st.header("📦 Productos")
 
     tab_list, tab_new, tab_edit, tab_cats = st.tabs(["📋 Productos", "➕ Nuevo Producto", "✏️ Editar", "🏷️ Categorías"])
@@ -16,7 +17,7 @@ def render():
 
         data, err = api.list_productos(search=search)
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar los productos", {"details": str(err)})
         else:
             productos = results(data)
 
@@ -43,10 +44,10 @@ def render():
                         if st.button("🗑️ Eliminar", key=f"del_prod_{prod['id']}"):
                             ok, e = api.delete_producto(prod["id"])
                             if ok:
-                                st.success("Producto eliminado.")
+                                notify_success(f"Producto **{prod.get('nombre')}** eliminado.")
                                 st.rerun()
                             else:
-                                st.error(f"Error: {e}")
+                                notify_error(f"No se pudo eliminar el producto", {"details": str(e)})
 
     # ── New Product ───────────────────────────────────────────────────────────
     with tab_new:
@@ -67,7 +68,7 @@ def render():
 
             if st.form_submit_button("Crear Producto", type="primary", use_container_width=True):
                 if not sku or not nombre:
-                    st.error("SKU y Nombre son obligatorios.")
+                    notify_error("SKU y Nombre son obligatorios")
                 else:
                     payload = {
                         "sku": sku, "nombre": nombre, "tipo": tipo,
@@ -77,16 +78,20 @@ def render():
                     }
                     result, err = api.create_producto(payload)
                     if err:
-                        st.error(f"Error: {err}")
+                        notify_error(f"No se pudo crear el producto", {"details": str(err), "payload": payload})
                     else:
-                        st.success(f"✅ Producto **{nombre}** creado.")
+                        notify_success(f"Producto **{nombre}** creado correctamente")
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        import time
+                        time.sleep(0.5)
                         st.rerun()
 
     # ── Edit ──────────────────────────────────────────────────────────────────
     with tab_edit:
         data, err = api.list_productos()
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar los productos para editar", {"details": str(err)})
         else:
             productos = results(data)
             if not productos:
@@ -98,42 +103,74 @@ def render():
                 if selected_prod:
                     prod = producto_options[selected_prod]
                     
+                    # Show product details before form
+                    with st.expander("📌 Detalles Actuales", expanded=False):
+                        st.write(f"**SKU:** {prod.get('sku', '-')}")
+                        st.write(f"**Nombre:** {prod.get('nombre', '-')}")
+                        st.write(f"**Costo:** {prod.get('costo', '-')}")
+                        st.write(f"**Descripción:** {prod.get('descripcion', '-')}")
+                    
                     with st.form("edit_producto"):
                         col1, col2 = st.columns(2)
                         with col1:
-                            sku = st.text_input("SKU", value=prod.get("sku", ""))
+                            sku = st.text_input("SKU", value=prod.get("sku", ""), disabled=True)
                             nombre = st.text_input("Nombre", value=prod.get("nombre", ""))
                             tipo = st.selectbox("Tipo", ["producto", "servicio"], index=0 if prod.get("tipo") == "producto" else 1)
-                            precio = st.number_input("Precio Unitario", min_value=0, value=int(prod.get("precio_unitario", 0)), step=1000)
+                            precio = st.number_input("Precio Unitario", min_value=0, value=int(float(prod.get("precio_unitario", 0) or 0)), step=1000)
                         with col2:
-                            costo = st.number_input("Costo", min_value=0, value=int(prod.get("costo", 0)), step=1000)
+                            costo = st.number_input("Costo", min_value=0, value=int(float(prod.get("costo", 0) or 0)), step=1000)
                             moneda = st.selectbox("Moneda", ["PYG", "USD"], index=0 if prod.get("moneda") == "PYG" else 1)
                             impuesto = st.number_input("IVA %", min_value=0.0, max_value=100.0, value=float(prod.get("impuesto_porcentaje", 10)), step=0.5)
                             imagen_url = st.text_input("URL de Imagen", value=prod.get("imagen_url", ""))
 
-                        descripcion = st.text_area("Descripción", value=prod.get("descripcion", ""))
+                        descripcion = st.text_area("Descripción", value=prod.get("descripcion", ""), height=100)
                         
                         activo = st.checkbox("Activo", value=prod.get("activo", True))
 
-                        if st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True):
-                            payload = {
-                                "sku": sku, "nombre": nombre, "tipo": tipo,
-                                "precio_unitario": str(precio), "costo": str(costo),
-                                "moneda": moneda, "impuesto_porcentaje": str(impuesto),
-                                "imagen_url": imagen_url, "descripcion": descripcion, "activo": activo,
-                            }
-                            result, err = api.update_producto(prod["id"], payload)
-                            if err:
-                                st.error(f"Error: {err}")
+                        submitted = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+                        
+                        if submitted:
+                            # Validate required fields
+                            if not nombre or nombre.strip() == "":
+                                notify_error("El nombre del producto es obligatorio")
+                            elif precio < 0 or costo < 0:
+                                notify_error("Precio y costo no pueden ser negativos")
                             else:
-                                st.success(f"✅ Producto **{nombre}** actualizado.")
-                                st.rerun()
+                                # Prepare payload - DO NOT include SKU to avoid unique_together constraint
+                                # SKU is immutable once created
+                                payload = {
+                                    "nombre": nombre.strip(),
+                                    "descripcion": descripcion.strip(),
+                                    "tipo": tipo,
+                                    "categoria": prod.get("categoria"),  # Keep existing categoria
+                                    "precio_unitario": str(int(precio)),
+                                    "costo": str(int(costo)),
+                                    "moneda": moneda,
+                                    "impuesto_porcentaje": str(float(impuesto)),
+                                    "imagen_url": imagen_url.strip() if imagen_url else "",
+                                    "activo": bool(activo),
+                                }
+                                
+                                try:
+                                    result, err = api.update_producto(prod["id"], payload)
+                                    if err:
+                                        notify_error(f"No se pudo guardar el producto", {"error": str(err), "payload": payload})
+                                    else:
+                                        notify_success(f"Producto **{nombre}** actualizado correctamente")
+                                        # Clear ALL caches to refresh data everywhere
+                                        st.cache_data.clear()
+                                        st.cache_resource.clear()
+                                        import time
+                                        time.sleep(0.5)
+                                        st.rerun()
+                                except Exception as e:
+                                    notify_error(f"Error procesando los datos", {"error": str(e), "type": type(e).__name__})
 
     # ── Categories ────────────────────────────────────────────────────────────
     with tab_cats:
         cats_data, cats_err = api.list_categorias()
         if cats_err:
-            st.error(f"Error: {cats_err}")
+            notify_error("No se pudieron cargar las categorías", {"details": str(cats_err)})
         else:
             categorias = results(cats_data)
             if categorias:
@@ -148,11 +185,11 @@ def render():
             cat_desc = st.text_input("Descripción")
             if st.form_submit_button("Crear Categoría", use_container_width=True):
                 if not cat_nombre:
-                    st.error("El nombre es obligatorio.")
+                    notify_error("El nombre de la categoría es obligatorio")
                 else:
                     result, err = api.create_categoria({"nombre": cat_nombre, "descripcion": cat_desc})
                     if err:
-                        st.error(f"Error: {err}")
+                        notify_error("No se pudo crear la categoría", {"details": str(err)})
                     else:
-                        st.success(f"✅ Categoría **{cat_nombre}** creada.")
+                        notify_success(f"Categoría **{cat_nombre}** creada correctamente")
                         st.rerun()

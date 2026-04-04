@@ -2,10 +2,11 @@
 import streamlit as st
 import pandas as pd
 import api_client as api
-from helpers import results, fmt
+from helpers import results, fmt, notify_success, notify_error, notify_info, show_session_notifications
 
 
 def render():
+    show_session_notifications()
     st.header("🧾 Ventas")
 
     tab_ventas, tab_nueva, tab_cxc, tab_cotiz = st.tabs([
@@ -16,7 +17,7 @@ def render():
     with tab_ventas:
         data, err = api.list_ventas()
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar las ventas", {"details": str(err)})
         else:
             ventas = results(data)
             if not ventas:
@@ -53,22 +54,33 @@ def render():
                                 if st.button("✅ Confirmar", key=f"conf_v_{v['id']}"):
                                     result, e = api.confirmar_venta(v["id"])
                                     if e:
-                                        st.error(f"Error: {e}")
+                                        notify_error(f"No se pudo confirmar la venta", {"details": str(e)})
                                     else:
-                                        st.success("Venta confirmada.")
+                                        notify_success(f"Venta **{v.get('numero')}** confirmada")
+                                        st.cache_data.clear()
+                                        st.cache_resource.clear()
+                                        import time
+                                        time.sleep(0.5)
                                         st.rerun()
                         with acol2:
                             if v.get("estado") in ("borrador", "confirmada"):
                                 if st.button("❌ Anular", key=f"anul_v_{v['id']}"):
                                     result, e = api.anular_venta(v["id"])
                                     if e:
-                                        st.error(f"Error: {e}")
+                                        notify_error(f"No se pudo anular la venta", {"details": str(e)})
                                     else:
-                                        st.success("Venta anulada.")
+                                        notify_success(f"Venta **{v.get('numero')}** anulada")
+                                        st.cache_data.clear()
+                                        st.cache_resource.clear()
+                                        import time
+                                        time.sleep(0.5)
                                         st.rerun()
 
     # ── Nueva Venta ───────────────────────────────────────────────────────────
     with tab_nueva:
+        # Clear cache to ensure fresh data from products updates
+        st.cache_data.clear()
+        
         cli_data, cli_err = api.list_clientes()
         clientes = results(cli_data)
         prod_data, prod_err = api.list_productos()
@@ -95,7 +107,7 @@ def render():
 
                 if st.form_submit_button("Crear Venta (Borrador)", type="primary", use_container_width=True):
                     if not numero:
-                        st.error("El numero de factura es obligatorio.")
+                        notify_error("El número de factura es obligatorio")
                     else:
                         payload = {
                             "numero": numero, "cliente": cliente_id,
@@ -104,9 +116,13 @@ def render():
                         }
                         result, err = api.create_venta(payload)
                         if err:
-                            st.error(f"Error: {err}")
+                            notify_error(f"No se pudo crear la venta", {"error": str(err), "payload": payload})
                         else:
-                            st.success(f"✅ Venta **{numero}** creada en borrador.")
+                            notify_success(f"Venta **{numero}** creada en borrador")
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            import time
+                            time.sleep(0.5)
                             st.session_state["venta_nueva_id"] = result.get("id")
                             st.rerun()
 
@@ -146,9 +162,13 @@ def render():
                         }
                         result, err = api.agregar_linea_venta(venta_id, payload)
                         if err:
-                            st.error(f"Error: {err}")
+                            notify_error(f"No se pudo agregar la línea", {"error": str(err), "payload": payload})
                         else:
-                            st.success("Linea agregada.")
+                            notify_success("Línea agregada correctamente")
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            import time
+                            time.sleep(0.5)
                             st.rerun()
 
                 st.divider()
@@ -198,7 +218,7 @@ def render():
                         # Confirmar venta
                         result, err = api.confirmar_venta(venta_id)
                         if err:
-                            st.error(f"Error: {err}")
+                            notify_error(f"No se pudo confirmar la venta", {"error": str(err)})
                         else:
                             # Si está pagada, registrar el pago
                             if esta_pagada:
@@ -213,12 +233,16 @@ def render():
                                     }
                                     pago_result, pago_err = api.create_registro_pago(pago_payload)
                                     if pago_err:
-                                        st.warning(f"Venta confirmada pero error registrando pago: {pago_err}")
+                                        notify_warning(f"Venta confirmada pero error registrando pago: {pago_err}")
                                     else:
-                                        st.success("✅ Venta confirmada y pagada registrada completamente!")
+                                        notify_success("Venta confirmada y pagada registrada completamente!")
                             else:
-                                st.success("✅ Venta confirmada! Se genero la cuenta por cobrar.")
+                                notify_success("Venta confirmada! Se generó la cuenta por cobrar")
                             
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            import time
+                            time.sleep(0.5)
                             st.session_state.pop("venta_nueva_id", None)
                             st.rerun()
                 with col_clear:
@@ -241,7 +265,7 @@ def render():
 
         cxc_data, cxc_err = api.list_cuentas_por_cobrar()
         if cxc_err:
-            st.error(f"Error: {cxc_err}")
+            notify_error("No se pudieron cargar las cuentas por cobrar", {"details": str(cxc_err)})
         else:
             cxc = results(cxc_data)
             if not cxc:
@@ -254,20 +278,20 @@ def render():
         with st.expander("⚠️ Cuentas Vencidas"):
             vencidas, v_err = api.get_cxc_vencidas()
             if v_err:
-                st.error(f"Error: {v_err}")
+                notify_error("No se pudieron cargar las cuentas vencidas", {"details": str(v_err)})
             else:
                 venc_list = results(vencidas) if not isinstance(vencidas, list) else vencidas
                 if venc_list:
                     vdf = pd.DataFrame(venc_list)
                     st.dataframe(vdf, use_container_width=True, hide_index=True)
                 else:
-                    st.success("No hay cuentas vencidas.")
+                    notify_info("No hay cuentas vencidas")
 
     # ── Cotizaciones ──────────────────────────────────────────────────────────
     with tab_cotiz:
         cot_data, cot_err = api.list_cotizaciones()
         if cot_err:
-            st.error(f"Error: {cot_err}")
+            notify_error("No se pudieron cargar las cotizaciones", {"details": str(cot_err)})
         else:
             cotizaciones = results(cot_data)
             if not cotizaciones:

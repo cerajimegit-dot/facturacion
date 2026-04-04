@@ -7,7 +7,7 @@ from apps.core.mixins import TenantQuerySetMixin
 from apps.core.permissions import IsEmpresaMember
 from .models import Producto, Categoria, PrecioLista
 from .serializers import (
-    ProductoSerializer, ProductoListSerializer,
+    ProductoSerializer, ProductoUpdateSerializer, ProductoListSerializer,
     CategoriaSerializer, PrecioListaSerializer,
 )
 
@@ -42,6 +42,8 @@ class ProductoViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'list':
             return ProductoListSerializer
+        elif self.action in ['update', 'partial_update']:
+            return ProductoUpdateSerializer
         return ProductoSerializer
 
 

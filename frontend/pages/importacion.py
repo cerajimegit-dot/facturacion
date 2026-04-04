@@ -4,10 +4,11 @@ import pandas as pd
 import io
 import json
 import api_client as api
-from helpers import results
+from helpers import results, notify_success, notify_error, notify_info, show_session_notifications
 
 
 def render():
+    show_session_notifications()
     st.header("📥 Importacion desde Excel")
 
     # Check if empresa is active
@@ -80,17 +81,17 @@ def render():
                     result, err = api.upload_import(file_obj, tipo)
 
                 if err:
-                    st.error("❌ **Error al subir el archivo**")
+                    notify_error("Error al subir el archivo", {"details": str(err)})
                     st.write(f"**Detalle del error:** {err}")
                     if "No tiene acceso" in str(err):
-                        st.warning("💡 **Solución:** Asegúrate de tener una empresa activa seleccionada en la sección '🏢 Empresas'.")
+                        st.warning("💡 **Solución:** Asegúrate de tener una empresa activa seleccionada en la sección '🏶 Empresas'.")
                     elif "archivo" in str(err).lower():
                         st.warning("💡 **Solución:** Verifica que el archivo sea un Excel válido (.xlsx o .xls) y no exceda 50 MB.")
                     elif "tipo" in str(err).lower():
                         st.warning("💡 **Solución:** Selecciona un tipo de importación válido.")
                 else:
                     job_id = result.get("id")
-                    st.success(f"✅ **Archivo subido exitosamente**")
+                    notify_success(f"Archivo subido exitosamente")
                     st.info(f"📋 **Trabajo de importación creado:** `{job_id}`")
 
                     # PASO 1: Validar automáticamente después del upload
@@ -98,9 +99,9 @@ def render():
                         validate_result, validate_err = api.validar_import(job_id)
                     
                     if validate_err:
-                        st.error(f"❌ Error en validación: {validate_err}")
+                        notify_error("Error en validación", {"details": str(validate_err)})
                     else:
-                        st.success("✅ **Validación exitosa**")
+                        notify_success("Validación completada exitosamente")
                         
                         # PASO 2: Verificar el estado después de validación
                         import time
@@ -143,9 +144,9 @@ def render():
                                     confirm_result, confirm_err = api.confirmar_import(job_id)
                                 
                                 if confirm_err:
-                                    st.error(f"❌ Error en importación: {confirm_err}")
+                                    notify_error("Error en importación", {"details": str(confirm_err)})
                                 else:
-                                    st.success("✅ **¡Importación completada exitosamente!**")
+                                    notify_success("¡Importación completada exitosamente!")
                                     
                                     # Mostrar resultado final
                                     time.sleep(1)

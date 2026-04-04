@@ -2,10 +2,11 @@
 import streamlit as st
 import pandas as pd
 import api_client as api
-from helpers import results, fmt
+from helpers import results, fmt, notify_success, notify_error, notify_info, show_session_notifications
 
 
 def render():
+    show_session_notifications()
     st.header("💰 Pagos")
 
     tab_list, tab_new = st.tabs(["📋 Pagos Registrados", "➕ Nuevo Pago"])
@@ -14,7 +15,7 @@ def render():
     with tab_list:
         data, err = api.list_pagos()
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar los pagos", {"details": str(err)})
         else:
             pagos = results(data)
             if not pagos:
@@ -41,9 +42,13 @@ def render():
                             if st.button("✅ Confirmar Pago", key=f"conf_p_{pago['id']}"):
                                 result, e = api.confirmar_pago(pago["id"])
                                 if e:
-                                    st.error(f"Error: {e}")
+                                    notify_error("No se pudo confirmar el pago", {"details": str(e)})
                                 else:
-                                    st.success("Pago confirmado.")
+                                    notify_success(f"Pago de ₵ {fmt(pago.get('monto', 0), '')} confirmado")
+                                    st.cache_data.clear()
+                                    st.cache_resource.clear()
+                                    import time
+                                    time.sleep(0.5)
                                     st.rerun()
 
     # ── New Payment ───────────────────────────────────────────────────────────
@@ -72,7 +77,7 @@ def render():
 
                 if st.form_submit_button("Registrar Pago", type="primary", use_container_width=True):
                     if monto <= 0:
-                        st.error("El monto debe ser mayor a 0.")
+                        notify_error("El monto debe ser mayor a 0")
                     else:
                         payload = {
                             "venta": venta_id, "monto": str(monto),
@@ -81,12 +86,16 @@ def render():
                         }
                         result, err = api.create_pago(payload)
                         if err:
-                            st.error(f"Error: {err}")
+                            notify_error("No se pudo registrar el pago", {"error": str(err), "payload": payload})
                         else:
-                            st.success("✅ Pago registrado.")
+                            notify_success(f"Pago de ₵ {monto:,} registrado correctamente")
                             pago_id = result.get("id")
                             if pago_id:
                                 conf, cerr = api.confirmar_pago(pago_id)
                                 if not cerr:
-                                    st.success("Pago confirmado automaticamente.")
+                                    notify_success("Pago confirmado automáticamente")
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            import time
+                            time.sleep(0.5)
                             st.rerun()

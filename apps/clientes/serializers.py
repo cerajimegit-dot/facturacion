@@ -44,5 +44,7 @@ class ClienteListSerializer(serializers.ModelSerializer):
         model = Cliente
         fields = [
             'id', 'nombre', 'ruc', 'telefono', 'email',
-            'tipo_cliente', 'activo',
+            'direccion_facturacion', 'direccion_entrega',
+            'tipo_cliente', 'sector', 'zona', 'observaciones',
+            'limite_credito', 'activo',
         ]

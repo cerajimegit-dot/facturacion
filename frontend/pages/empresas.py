@@ -1,16 +1,17 @@
 """Empresas management page."""
 import streamlit as st
 import api_client as api
-from helpers import results
+from helpers import results, notify_success, notify_error, notify_info, show_session_notifications
 
 
 def render():
+    show_session_notifications()
     st.header("🏢 Empresas")
 
     # ── Load empresas ─────────────────────────────────────────────────────────
     data, err = api.list_empresas()
     if err:
-        st.error(f"Error: {err}")
+        notify_error("No se pudieron cargar las empresas", {"details": str(err)})
         return
 
     empresas = results(data)
@@ -67,10 +68,14 @@ def render():
                         if logo_file:
                             ok, err = api.update_empresa_logo(emp["id"], logo_file)
                             if ok:
-                                st.success("✅ Logo actualizado")
+                                notify_success("Logo actualizado correctamente")
+                                st.cache_data.clear()
+                                st.cache_resource.clear()
+                                import time
+                                time.sleep(0.5)
                                 st.rerun()
                             else:
-                                st.error(f"Error: {err}")
+                                notify_error("No se pudo actualizar el logo", {"details": str(err)})
                     
                     with col_info:
                         c1, c2 = st.columns(2)
@@ -93,10 +98,14 @@ def render():
                         if st.button("🗑️ Eliminar", key=f"del_{emp['id']}", type="secondary"):
                             ok, e = api.delete_empresa(emp["id"])
                             if ok:
-                                st.success("Empresa eliminada.")
+                                notify_success(f"Empresa **{emp.get('nombre')}** eliminada correctamente")
+                                st.cache_data.clear()
+                                st.cache_resource.clear()
+                                import time
+                                time.sleep(0.5)
                                 st.rerun()
                             else:
-                                st.error(f"Error: {e}")
+                                notify_error("No se pudo eliminar la empresa", {"details": str(e)})
 
     with tab_new:
         if empresas:
@@ -120,7 +129,7 @@ def render():
 
                 if st.form_submit_button("Crear Empresa", type="primary", use_container_width=True):
                     if not codigo or not nombre:
-                        st.error("Código y Nombre son obligatorios.")
+                        notify_error("El código y nombre de la empresa son obligatorios")
                     else:
                         payload = {
                             "codigo": codigo, "nombre": nombre, "ruc": ruc,
@@ -129,8 +138,12 @@ def render():
                         }
                         result, err = api.create_empresa(payload)
                         if err:
-                            st.error(f"Error: {err}")
+                            notify_error("No se pudo crear la empresa", {"error": str(err), "payload": payload})
                         else:
-                            st.success(f"✅ Empresa **{nombre}** creada. Ya puedes navegar a otras secciones.")
+                            notify_success(f"Empresa **{nombre}** creada correctamente. Ya puedes navegar a otras secciones.")
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
                             st.session_state["empresa_activa"] = result
+                            import time
+                            time.sleep(0.5)
                             st.rerun()

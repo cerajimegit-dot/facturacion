@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'apps.importacion',
     'apps.presupuestos',
     'apps.auditoria',
+    'apps.compras',
 ]
 
 MIDDLEWARE = [

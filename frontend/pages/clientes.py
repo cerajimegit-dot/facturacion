@@ -2,10 +2,11 @@
 import streamlit as st
 import pandas as pd
 import api_client as api
-from helpers import results, fmt
+from helpers import results, fmt, notify_success, notify_error, notify_info, show_session_notifications
 
 
 def render():
+    show_session_notifications()
     st.header("👥 Clientes")
 
     tab_list, tab_new, tab_edit = st.tabs(["📋 Lista de Clientes", "➕ Nuevo Cliente", "✏️ Editar"])
@@ -16,7 +17,7 @@ def render():
 
         data, err = api.list_clientes(search=search)
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar los clientes", {"details": str(err)})
         else:
             clientes = results(data)
 
@@ -43,10 +44,10 @@ def render():
                         if st.button("🗑️ Eliminar", key=f"del_cli_{cli['id']}"):
                             ok, e = api.delete_cliente(cli["id"])
                             if ok:
-                                st.success("Cliente eliminado.")
+                                notify_success(f"Cliente **{cli.get('nombre')}** eliminado.")
                                 st.rerun()
                             else:
-                                st.error(f"Error: {e}")
+                                notify_error(f"No se pudo eliminar el cliente", {"details": str(e)})
 
     # ── New ───────────────────────────────────────────────────────────────────
     with tab_new:
@@ -68,7 +69,7 @@ def render():
 
             if st.form_submit_button("Crear Cliente", type="primary", use_container_width=True):
                 if not nombre:
-                    st.error("Nombre es obligatorio.")
+                    notify_error("El nombre del cliente es obligatorio")
                 else:
                     payload = {
                         "nombre": nombre, "ruc": ruc, "tipo_cliente": tipo,
@@ -79,16 +80,20 @@ def render():
                     }
                     result, err = api.create_cliente(payload)
                     if err:
-                        st.error(f"Error: {err}")
+                        notify_error(f"No se pudo crear el cliente", {"details": str(err), "payload": payload})
                     else:
-                        st.success(f"✅ Cliente **{nombre}** creado.")
+                        notify_success(f"Cliente **{nombre}** creado correctamente")
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        import time
+                        time.sleep(0.5)
                         st.rerun()
 
     # ── Edit ──────────────────────────────────────────────────────────────────
     with tab_edit:
         data, err = api.list_clientes()
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar los clientes para editar", {"details": str(err)})
         else:
             clientes = results(data)
             if not clientes:
@@ -100,37 +105,61 @@ def render():
                 if selected_name:
                     cli = cliente_options[selected_name]
                     
+                    # Show current details
+                    with st.expander("📌 Detalles Actuales", expanded=False):
+                        st.write(f"**RUC:** {cli.get('ruc', '-')}")
+                        st.write(f"**Sector:** {cli.get('sector', '-')}")
+                        st.write(f"**Zona:** {cli.get('zona', '-')}")
+                        st.write(f"**Límite Crédito:** {fmt(cli.get('limite_credito', 0), '₲ ')}")
+                    
                     with st.form("edit_cliente"):
                         col1, col2 = st.columns(2)
                         with col1:
                             nombre = st.text_input("Nombre", value=cli.get("nombre", ""))
-                            ruc = st.text_input("RUC", value=cli.get("ruc", ""))
+                            ruc = st.text_input("RUC", value=cli.get("ruc", ""), disabled=True)
                             tipo = st.selectbox("Tipo", ["persona", "empresa"], index=0 if cli.get("tipo_cliente") == "persona" else 1)
                             telefono = st.text_input("Teléfono", value=cli.get("telefono", ""))
                         with col2:
                             email = st.text_input("Email", value=cli.get("email", ""))
                             sector = st.text_input("Sector", value=cli.get("sector", ""))
                             zona = st.text_input("Zona", value=cli.get("zona", ""))
-                            limite_credito = st.number_input("Límite de Crédito", min_value=0, value=int(cli.get("limite_credito", 0)), step=100000)
+                            limite_credito = st.number_input("Límite de Crédito", min_value=0, value=int(float(cli.get("limite_credito", 0) or 0)), step=100000)
 
-                        direccion = st.text_area("Dirección de Facturación", value=cli.get("direccion_facturacion", ""))
-                        observaciones = st.text_area("Observaciones", value=cli.get("observaciones", ""))
+                        direccion = st.text_area("Dirección de Facturación", value=cli.get("direccion_facturacion", ""), height=80)
+                        observaciones = st.text_area("Observaciones", value=cli.get("observaciones", ""), height=80)
                         
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            activo = st.checkbox("Activo", value=cli.get("activo", True))
+                        activo = st.checkbox("Activo", value=cli.get("activo", True))
 
-                        if st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True):
-                            payload = {
-                                "nombre": nombre, "ruc": ruc, "tipo_cliente": tipo,
-                                "telefono": telefono, "email": email, "sector": sector,
-                                "zona": zona, "limite_credito": str(limite_credito),
-                                "direccion_facturacion": direccion,
-                                "observaciones": observaciones, "activo": activo,
-                            }
-                            result, err = api.update_cliente(cli["id"], payload)
-                            if err:
-                                st.error(f"Error: {err}")
+                        submitted = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+                        
+                        if submitted:
+                            if not nombre or nombre.strip() == "":
+                                notify_error("El nombre del cliente es obligatorio")
                             else:
-                                st.success(f"✅ Cliente **{nombre}** actualizado.")
-                                st.rerun()
+                                payload = {
+                                    "nombre": nombre.strip(),
+                                    "tipo_cliente": tipo,
+                                    "telefono": telefono.strip() if telefono else "",
+                                    "email": email.strip() if email else "",
+                                    "sector": sector.strip() if sector else "",
+                                    "zona": zona.strip() if zona else "",
+                                    "limite_credito": str(int(limite_credito)),
+                                    "direccion_facturacion": direccion.strip() if direccion else "",
+                                    "observaciones": observaciones.strip() if observaciones else "",
+                                    "activo": bool(activo),
+                                }
+                                
+                                try:
+                                    result, err = api.update_cliente(cli["id"], payload)
+                                    if err:
+                                        notify_error(f"No se pudo guardar el cliente", {"error": str(err), "payload": payload})
+                                    else:
+                                        notify_success(f"Cliente **{nombre}** actualizado correctamente")
+                                        # Clear ALL caches to ensure updates everywhere
+                                        st.cache_data.clear()
+                                        st.cache_resource.clear()
+                                        import time
+                                        time.sleep(0.5)
+                                        st.rerun()
+                                except Exception as e:
+                                    notify_error(f"Error procesando los datos", {"error": str(e), "type": type(e).__name__})

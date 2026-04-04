@@ -2,11 +2,12 @@
 import streamlit as st
 import pandas as pd
 import api_client as api
-from helpers import results, fmt
+from helpers import results, fmt, notify_success, notify_error, notify_info, show_session_notifications
 from datetime import datetime
 
 
 def render():
+    show_session_notifications()
     st.header("💰 Cobros Parciales")
     st.write("Registra pagos parciales y observaciones de avance de cobro")
 
@@ -18,7 +19,7 @@ def render():
         
         data, err = api.list_ventas(estado="parcial")
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar las facturas con saldo pendiente", {"details": str(err)})
         else:
             ventas = results(data) if data else []
             
@@ -56,12 +57,15 @@ def render():
                 if selected_venta:
                     venta = venta_options[selected_venta]
                     
+                    # Convert saldo_pendiente (string from API) to int for max_value
+                    saldo_pendiente = float(venta.get("saldo_pendiente", 0) or 0)
+                    
                     col1, col2 = st.columns(2)
                     with col1:
                         monto_pago = st.number_input(
                             "Monto a Cobrar",
                             min_value=0,
-                            max_value=int(venta.get("saldo_pendiente", 0)),
+                            max_value=int(saldo_pendiente),
                             value=0,
                             step=1000,
                             key="monto_pago_input"
@@ -87,7 +91,7 @@ def render():
                     
                     if st.button("✅ Registrar Pago", type="primary", use_container_width=True):
                         if monto_pago <= 0:
-                            st.error("El monto debe ser mayor a 0.")
+                            notify_error("El monto debe ser mayor a 0")
                         else:
                             payload = {
                                 "venta": venta["id"],
@@ -98,9 +102,13 @@ def render():
                             }
                             result, err = api.create_registro_pago(payload)
                             if err:
-                                st.error(f"Error al registrar pago: {err}")
+                                notify_error(f"No se pudo registrar el pago", {"error": str(err), "payload": payload})
                             else:
-                                st.success(f"✅ Pago de ₲ {monto_pago:,} registrado correctamente")
+                                notify_success(f"Pago de ₵ {monto_pago:,} registrado correctamente")
+                                st.cache_data.clear()
+                                st.cache_resource.clear()
+                                import time
+                                time.sleep(0.5)
                                 st.rerun()
                 
                 # Actualizar observaciones de cobro
@@ -128,9 +136,13 @@ def render():
                         payload = {"observaciones_cobro": obs_nueva}
                         result, err = api.update_venta(venta_obs["id"], payload)
                         if err:
-                            st.error(f"Error: {err}")
+                            notify_error(f"No se pudieron guardar las observaciones", {"details": str(err)})
                         else:
-                            st.success("✅ Observaciones guardadas")
+                            notify_success("Observaciones de cobro guardadas correctamente")
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            import time
+                            time.sleep(0.5)
                             st.rerun()
 
     # ── Registros de pago ─────────────────────────────────────────────────────
@@ -159,7 +171,7 @@ def render():
         
         data, err = api.list_registro_pagos(**filters)
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar los registros de pago", {"details": str(err)})
         else:
             pagos = results(data) if data else []
             

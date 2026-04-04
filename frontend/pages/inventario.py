@@ -2,10 +2,11 @@
 import streamlit as st
 import pandas as pd
 import api_client as api
-from helpers import results, fmt
+from helpers import results, fmt, notify_success, notify_error, notify_info, show_session_notifications
 
 
 def render():
+    show_session_notifications()
     st.header("🏭 Inventario")
 
     tab_stock, tab_mov, tab_almacenes = st.tabs(["📦 Stock", "🔄 Movimientos", "🏢 Almacenes"])
@@ -14,7 +15,7 @@ def render():
     with tab_stock:
         data, err = api.list_stock()
         if err:
-            st.error(f"Error: {err}")
+            notify_error("No se pudieron cargar los registros de stock", {"details": str(err)})
         else:
             stock_list = results(data)
             if not stock_list:
@@ -29,7 +30,7 @@ def render():
     with tab_mov:
         mov_data, mov_err = api.list_movimientos()
         if mov_err:
-            st.error(f"Error: {mov_err}")
+            notify_error("No se pudieron cargar los movimientos de inventario", {"details": str(mov_err)})
         else:
             movs = results(mov_data)
             if movs:
@@ -42,6 +43,9 @@ def render():
         st.divider()
         st.subheader("Registrar Movimiento")
 
+        # Clear cache to ensure fresh data from product updates
+        st.cache_data.clear()
+        
         prods_data, _ = api.list_productos()
         prods = results(prods_data)
         alm_data, _ = api.list_almacenes()
@@ -74,16 +78,20 @@ def render():
                     }
                     result, err = api.create_movimiento(payload)
                     if err:
-                        st.error(f"Error: {err}")
+                        notify_error(f"No se pudo registrar el movimiento", {"error": str(err), "payload": payload})
                     else:
-                        st.success("✅ Movimiento registrado.")
+                        notify_success("Movimiento de inventario registrado correctamente")
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        import time
+                        time.sleep(0.5)
                         st.rerun()
 
     # ── Almacenes ─────────────────────────────────────────────────────────────
     with tab_almacenes:
         alm_data2, alm_err2 = api.list_almacenes()
         if alm_err2:
-            st.error(f"Error: {alm_err2}")
+            notify_error("No se pudieron cargar los almacenes", {"details": str(alm_err2)})
         else:
             almacenes = results(alm_data2)
             if almacenes:
@@ -118,7 +126,7 @@ def render():
                     with col3:
                         if st.form_submit_button("Actualizar Almacen", type="primary", use_container_width=True):
                             if not edit_codigo or not edit_nombre:
-                                st.error("Codigo y Nombre son obligatorios.")
+                                notify_error("El código y nombre del almacén son obligatorios")
                             else:
                                 payload = {
                                     "codigo": edit_codigo,
@@ -128,17 +136,25 @@ def render():
                                 }
                                 result, err = api.update_almacen(selected_almacen_id, payload)
                                 if err:
-                                    st.error(f"Error al actualizar: {err}")
+                                    notify_error(f"No se pudo actualizar el almacén", {"error": str(err), "payload": payload})
                                 else:
-                                    st.success(f"✅ Almacén actualizado: {edit_nombre}")
+                                    notify_success(f"Almacén **{edit_nombre}** actualizado correctamente")
+                                    st.cache_data.clear()
+                                    st.cache_resource.clear()
+                                    import time
+                                    time.sleep(0.5)
                                     st.rerun()
                     with col4:
                         if st.form_submit_button("Eliminar Almacen", type="secondary", use_container_width=True):
                             ok, err = api.delete_almacen(selected_almacen_id)
                             if not ok:
-                                st.error(f"Error al eliminar: {err}")
+                                notify_error(f"No se pudo eliminar el almacén", {"details": str(err)})
                             else:
-                                st.success(f"✅ Almacén eliminado: {almacen_sel.get('codigo')}")
+                                notify_success(f"Almacén **{almacen_sel.get('codigo')}** eliminado correctamente")
+                                st.cache_data.clear()
+                                st.cache_resource.clear()
+                                import time
+                                time.sleep(0.5)
                                 st.rerun()
 
         st.divider()
@@ -152,12 +168,16 @@ def render():
                 alm_dir = st.text_input("Direccion", placeholder="Calle 123")
             if st.form_submit_button("Crear Almacen", type="primary", use_container_width=True):
                 if not alm_codigo or not alm_nombre:
-                    st.error("Codigo y Nombre son obligatorios.")
+                    notify_error("El código y nombre del almacén son obligatorios")
                 else:
                     payload = {"codigo": alm_codigo, "nombre": alm_nombre, "direccion": alm_dir}
                     result, err = api.create_almacen(payload)
                     if err:
-                        st.error(f"Error: {err}")
+                        notify_error(f"No se pudo crear el almacén", {"error": str(err), "payload": payload})
                     else:
-                        st.success(f"✅ Almacen **{alm_nombre}** creado.")
+                        notify_success(f"Almacén **{alm_nombre}** creado correctamente")
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        import time
+                        time.sleep(0.5)
                         st.rerun()

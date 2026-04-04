@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import api_client as api
-from helpers import results
+from helpers import results, notify_success, notify_error, notify_info, show_session_notifications
 
 
 API_BASE = "http://localhost:8000/api/v1"
@@ -13,16 +13,19 @@ def get_clientes():
     """Fetch list of clientes from API."""
     data, err = api.list_clientes()
     if err:
-        st.error(f"Error fetching clientes: {err}")
+        notify_error("No se pudieron cargar los clientes", {"details": str(err)})
         return []
     return results(data) if data else []
 
 
 def get_productos():
     """Fetch list of productos from API."""
+    # Clear cache to ensure fresh data from product updates
+    st.cache_data.clear()
+    
     data, err = api.list_productos()
     if err:
-        st.error(f"Error fetching productos: {err}")
+        notify_error("No se pudieron cargar los productos", {"details": str(err)})
         return []
     return results(data) if data else []
 
@@ -31,7 +34,7 @@ def get_presupuestos():
     """Fetch list of presupuestos from API."""
     data, err = api.list_presupuestos()
     if err:
-        st.error(f"Error fetching presupuestos: {err}")
+        notify_error("No se pudieron cargar los presupuestos", {"details": str(err)})
         return []
     return results(data) if data else []
 
@@ -47,7 +50,7 @@ def create_presupuesto(cliente_id, detalles, condiciones_pago=""):
     
     result, err = api.create_presupuesto(payload)
     if err:
-        st.error(f"Error creating presupuesto: {err}")
+        notify_error("No se pudo crear el presupuesto", {"error": str(err), "payload": payload})
         return None
     return result
 
@@ -56,9 +59,9 @@ def send_presupuesto_email(presupuesto_id):
     """Send presupuesto via email."""
     result, err = api.enviar_presupuesto_email(presupuesto_id)
     if err:
-        st.error(f"Error: {err}")
+        notify_error("No se pudo enviar el presupuesto por email", {"details": str(err)})
         return False
-    st.success("✓ Presupuesto enviado por email")
+    notify_success("Presupuesto enviado por email correctamente")
     return True
 
 
@@ -66,14 +69,15 @@ def send_presupuesto_whatsapp(presupuesto_id):
     """Send presupuesto via WhatsApp."""
     result, err = api.enviar_presupuesto_whatsapp(presupuesto_id)
     if err:
-        st.error(f"Error: {err}")
+        notify_error("No se pudo enviar el presupuesto por WhatsApp", {"details": str(err)})
         return False
-    st.success("✓ Presupuesto enviado por WhatsApp")
+    notify_success("Presupuesto enviado por WhatsApp correctamente")
     return True
 
 
 def render():
     """Render the presupuestos page."""
+    show_session_notifications()
     st.header("📋 Presupuestos")
     st.write("Crea y administra presupuestos para tus clientes")
     
@@ -158,7 +162,7 @@ def render():
                         "impuesto_porcentaje": impuesto
                     }
                     st.session_state.detalles_temp.append(detalle)
-                    st.success(f"✓ Línea agregada: {description}")
+                    notify_success(f"Línea agregada: {description}")
         
         # Display current detalles
         if st.session_state.detalles_temp:
@@ -216,8 +220,13 @@ def render():
                         )
                         if result:
                             st.session_state.detalles_temp = []
-                            st.success(f"✓ Presupuesto creado: {result.get('numero')}")
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            import time
+                            time.sleep(0.5)
+                            notify_success(f"Presupuesto **{result.get('numero')}** creado correctamente")
                             st.balloons()
+                            st.rerun()
     
     with tab2:
         st.subheader("Mis Presupuestos")
