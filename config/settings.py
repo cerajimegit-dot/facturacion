@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'apps.contratos',
     'apps.reportes',
     'apps.importacion',
+    'apps.presupuestos',
     'apps.auditoria',
 ]
 
@@ -71,7 +72,7 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -179,6 +180,15 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'America/Asuncion'
 
+# Para debugging: ejecutar tareas sincronamente (sin broker)
+# Descomenta estas líneas para hacer Celery síncrono
+# CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
+# CELERY_TASK_EAGER_PROPAGATES = config('CELERY_TASK_EAGER_PROPAGATES', default=False, cast=bool)
+
+# ✅ Habilitar usando CELERY_SYNC=1 en .env
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_SYNC', default=False, cast=bool)
+CELERY_TASK_EAGER_PROPAGATES = config('CELERY_SYNC', default=False, cast=bool)
+
 # Spectacular (OpenAPI/Swagger)
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Sistema de Facturación Multi-Empresa API',
@@ -197,6 +207,11 @@ AXES_LOCKOUT_CALLABLE = None
 FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800
 
+# Crear carpeta logs si no existe
+import logging as _logging_module
+_logs_dir = BASE_DIR / 'logs'
+_logs_dir.mkdir(exist_ok=True)
+
 # Logging
 LOGGING = {
     'version': 1,
@@ -205,26 +220,34 @@ LOGGING = {
         'verbose': {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '[{levelname}] {name}: {message}',
+            'style': '{',
         },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
+            'level': 'DEBUG',
         },
         'file': {
             'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'app.log',
+            'filename': str(BASE_DIR / 'logs' / 'app.log'),
             'formatter': 'verbose',
+            'level': 'DEBUG',
+            'encoding': 'utf-8',
         },
     },
     'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
+        'handlers': ['console', 'file'],
+        'level': 'DEBUG',
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': False,
         },
@@ -233,8 +256,27 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': False,
         },
+        'apps.importacion': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'apps.presupuestos': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
     },
 }
+
+# Email Configuration
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@facturacion.com')
 
 # Currencies
 SUPPORTED_CURRENCIES = ['PYG', 'USD']

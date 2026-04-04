@@ -1,19 +1,22 @@
-"""Celery tasks for Excel import processing."""
+"""Importación de Excel - funciones sincrónicas (sin Celery)."""
 import logging
 from datetime import datetime
 from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
-from celery import shared_task
 
 import pandas as pd
 
 logger = logging.getLogger('apps.importacion')
 
 
-@shared_task(bind=True, max_retries=1)
-def validate_import_task(self, job_id):
+def validate_import_task(job_id):
     """Pre-validate an uploaded Excel file without importing."""
+    logger.info(f"[importacion.tasks] === INICIO validate_import_task ===")
+    logger.info(f"[importacion.tasks] job_id={job_id}")
+    print(f"[importacion.tasks] === INICIO validate_import_task ===")
+    print(f"[importacion.tasks] job_id={job_id}")
+    
     from .models import ImportJob
     from .validators import (
         validate_clientes_row, validate_productos_row,
@@ -22,14 +25,19 @@ def validate_import_task(self, job_id):
 
     job = ImportJob.objects.get(id=job_id)
     job.estado = 'validando'
-    job.task_id = self.request.id or ''
     job.iniciado_en = timezone.now()
-    job.save(update_fields=['estado', 'task_id', 'iniciado_en'])
+    job.save(update_fields=['estado', 'iniciado_en'])
+
+    logger.info(f"[importacion] job {job_id} inició validación para empresa {job.empresa_id}, tipo={job.tipo}")
+    print(f"[importacion] job {job_id} inició validación para empresa {job.empresa_id}, tipo={job.tipo}")
 
     try:
         filepath = job.archivo.path
         tipo = job.tipo
         empresa = job.empresa
+        
+        logger.info(f"[importacion.tasks] filepath={filepath}")
+        print(f"[importacion.tasks] filepath={filepath}")
 
         # Read the Excel file
         if tipo == 'mixto':
@@ -62,6 +70,8 @@ def validate_import_task(self, job_id):
         )
 
         for sheet_name, df in sheets.items():
+            logger.info(f"[importacion] job {job_id} procesando hoja {sheet_name} con {len(df)} filas")
+            print(f"[importacion] job {job_id} procesando hoja {sheet_name} con {len(df)} filas")
             df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
             rows_results = []
 
@@ -84,7 +94,10 @@ def validate_import_task(self, job_id):
                 else:
                     continue
 
-                rows_results.append(result.to_dict())
+                row_info = result.to_dict()
+                rows_results.append(row_info)
+                logger.debug(f"[importacion] job {job_id} fila {row_num} hoja {sheet_name} => {row_info}")
+                print(f"[importacion] job {job_id} fila {row_num} hoja {sheet_name} => {row_info}")
                 total_filas += 1
                 if result.is_valid:
                     total_validas += 1
@@ -111,6 +124,13 @@ def validate_import_task(self, job_id):
         job.mensaje = f"Validación completa: {total_validas} válidas, {total_errores} errores, {total_warnings} warnings"
         job.save()
 
+        logger.info(
+            f"[importacion] job {job_id} validado: total={total_filas}, validas={total_validas}, errores={total_errores}, warnings={total_warnings}"
+        )
+        print(
+            f"[importacion] job {job_id} validado: total={total_filas}, validas={total_validas}, errores={total_errores}, warnings={total_warnings}"
+        )
+
         return {
             'job_id': str(job.id),
             'estado': 'validado',
@@ -121,6 +141,7 @@ def validate_import_task(self, job_id):
 
     except Exception as e:
         logger.error(f"Error validating import job {job_id}: {e}", exc_info=True)
+        print(f"[importacion] ERROR job {job_id} validating: {e}")
         job.estado = 'error'
         job.mensaje = str(e)[:1000]
         job.finalizado_en = timezone.now()
@@ -128,21 +149,32 @@ def validate_import_task(self, job_id):
         raise
 
 
-@shared_task(bind=True, max_retries=0)
-def execute_import_task(self, job_id):
+def execute_import_task(job_id):
     """Execute the actual import after validation has been confirmed."""
+    logger.info(f"[importacion.tasks] === INICIO execute_import_task ===")
+    logger.info(f"[importacion.tasks] job_id={job_id}")
+    print(f"[importacion.tasks] === INICIO execute_import_task ===")
+    print(f"[importacion.tasks] job_id={job_id}")
+    
     from .models import ImportJob
 
     job = ImportJob.objects.get(id=job_id)
+    logger.info(f"[importacion.tasks] job obtenido: estado={job.estado}")
+    print(f"[importacion.tasks] job obtenido: estado={job.estado}")
+    
     if job.estado != 'validado':
         job.mensaje = "El trabajo debe estar validado antes de importar."
         job.save(update_fields=['mensaje'])
+        logger.warning(f"[importacion] job {job_id} no puede importarse porque no está validado (estado={job.estado})")
+        print(f"[importacion] job {job_id} no puede importarse porque no está validado (estado={job.estado})")
         return {'error': job.mensaje}
 
     job.estado = 'importando'
-    job.task_id = self.request.id or ''
     job.iniciado_en = timezone.now()
-    job.save(update_fields=['estado', 'task_id', 'iniciado_en'])
+    job.save(update_fields=['estado', 'iniciado_en'])
+
+    logger.info(f"[importacion] job {job_id} inició importación")
+    print(f"[importacion] job {job_id} inició importación")
 
     try:
         filepath = job.archivo.path
@@ -164,8 +196,12 @@ def execute_import_task(self, job_id):
         import_order = ['clientes', 'productos', 'stock', 'ventas']
         for sheet_name in import_order:
             if sheet_name not in sheets:
+                logger.info(f"[importacion] job {job_id} hoja {sheet_name} no existe en el archivo")
+                print(f"[importacion] job {job_id} hoja {sheet_name} no existe en el archivo")
                 continue
             df = sheets[sheet_name]
+            logger.info(f"[importacion] job {job_id} importando hoja {sheet_name} con {len(df)} filas")
+            print(f"[importacion] job {job_id} importando hoja {sheet_name} con {len(df)} filas")
             df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
             if sheet_name == 'clientes':
@@ -179,6 +215,9 @@ def execute_import_task(self, job_id):
             else:
                 continue
 
+            logger.info(f"[importacion] job {job_id} hoja {sheet_name} importados={count}, errores={len(errs)}")
+            print(f"[importacion] job {job_id} hoja {sheet_name} importados={count}, errores={len(errs)}")
+
             total_imported += count
             errors.extend(errs)
 
@@ -188,6 +227,9 @@ def execute_import_task(self, job_id):
         job.finalizado_en = timezone.now()
         job.mensaje = f"Importación completa: {total_imported} registros importados, {len(errors)} errores"
         job.save()
+
+        logger.info(f"[importacion] job {job_id} completado: importados={total_imported}, errores={len(errors)}")
+        print(f"[importacion] job {job_id} completado: importados={total_imported}, errores={len(errors)}")
 
         return {
             'job_id': str(job.id),
@@ -209,6 +251,9 @@ def _import_clientes(df, empresa):
     """Bulk import clientes from DataFrame."""
     from apps.clientes.models import Cliente
 
+    print(f"[importacion][clientes] Iniciando import de {len(df)} filas")
+    logger.info(f"[importacion][clientes] Iniciando import de {len(df)} filas")
+
     imported = 0
     errors = []
     batch = []
@@ -224,18 +269,23 @@ def _import_clientes(df, empresa):
             ruc = str(row.get('ruc', '')).strip()
             if not ruc or ruc in existing_rucs:
                 if ruc in existing_rucs:
-                    errors.append({
-                        'fila': row_num, 'hoja': 'clientes',
-                        'error': f'RUC duplicado: {ruc} - se omite'
-                    })
+                    msg = f"RUC duplicado: {ruc} - se omite"
+                    errors.append({'fila': row_num, 'hoja': 'clientes', 'error': msg})
+                    logger.warning(f"[importacion][clientes] fila {row_num}: {msg}")
+                    print(f"[importacion][clientes] fila {row_num}: {msg}")
+                else:
+                    msg = 'RUC vacío - se omite'
+                    errors.append({'fila': row_num, 'hoja': 'clientes', 'error': msg})
+                    logger.warning(f"[importacion][clientes] fila {row_num}: {msg}")
+                    print(f"[importacion][clientes] fila {row_num}: {msg}")
                 continue
 
             nombre = str(row.get('nombre', '')).strip()
             if not nombre:
-                errors.append({
-                    'fila': row_num, 'hoja': 'clientes',
-                    'error': 'nombre vacío'
-                })
+                msg = 'nombre vacío'
+                errors.append({'fila': row_num, 'hoja': 'clientes', 'error': msg})
+                logger.warning(f"[importacion][clientes] fila {row_num}: {msg}")
+                print(f"[importacion][clientes] fila {row_num}: {msg}")
                 continue
 
             cliente = Cliente(
@@ -258,6 +308,8 @@ def _import_clientes(df, empresa):
                 with transaction.atomic():
                     Cliente.objects.bulk_create(batch, ignore_conflicts=True)
                 imported += len(batch)
+                logger.info(f"[importacion][clientes] bulk created {len(batch)} registros")
+                print(f"[importacion][clientes] bulk created {len(batch)} registros")
                 batch = []
 
         except Exception as e:
@@ -267,6 +319,11 @@ def _import_clientes(df, empresa):
         with transaction.atomic():
             Cliente.objects.bulk_create(batch, ignore_conflicts=True)
         imported += len(batch)
+        logger.info(f"[importacion][clientes] bulk final creado {len(batch)} registros")
+        print(f"[importacion][clientes] bulk final creado {len(batch)} registros")
+
+    logger.info(f"[importacion][clientes] resultado: importados={imported}, errores={len(errors)}")
+    print(f"[importacion][clientes] resultado: importados={imported}, errores={len(errors)}")
 
     return imported, errors
 
@@ -274,6 +331,9 @@ def _import_clientes(df, empresa):
 def _import_productos(df, empresa):
     """Bulk import productos from DataFrame."""
     from apps.productos.models import Producto, Categoria
+
+    print(f"[importacion][productos] Iniciando import de {len(df)} filas")
+    logger.info(f"[importacion][productos] Iniciando import de {len(df)} filas")
 
     imported = 0
     errors = []
@@ -292,18 +352,23 @@ def _import_productos(df, empresa):
             sku = str(row.get('sku', '')).strip()
             if not sku or sku in existing_skus:
                 if sku in existing_skus:
-                    errors.append({
-                        'fila': row_num, 'hoja': 'productos',
-                        'error': f'SKU duplicado: {sku} - se omite'
-                    })
+                    msg = f"SKU duplicado: {sku} - se omite"
+                    errors.append({'fila': row_num, 'hoja': 'productos', 'error': msg})
+                    logger.warning(f"[importacion][productos] fila {row_num}: {msg}")
+                    print(f"[importacion][productos] fila {row_num}: {msg}")
+                else:
+                    msg = 'SKU vacío - se omite'
+                    errors.append({'fila': row_num, 'hoja': 'productos', 'error': msg})
+                    logger.warning(f"[importacion][productos] fila {row_num}: {msg}")
+                    print(f"[importacion][productos] fila {row_num}: {msg}")
                 continue
 
             nombre = str(row.get('nombre', '')).strip()
             if not nombre:
-                errors.append({
-                    'fila': row_num, 'hoja': 'productos',
-                    'error': 'nombre vacío'
-                })
+                msg = 'nombre vacío'
+                errors.append({'fila': row_num, 'hoja': 'productos', 'error': msg})
+                logger.warning(f"[importacion][productos] fila {row_num}: {msg}")
+                print(f"[importacion][productos] fila {row_num}: {msg}")
                 continue
 
             try:
@@ -351,6 +416,8 @@ def _import_productos(df, empresa):
                 with transaction.atomic():
                     Producto.objects.bulk_create(batch, ignore_conflicts=True)
                 imported += len(batch)
+                logger.info(f"[importacion][productos] bulk created {len(batch)} registros")
+                print(f"[importacion][productos] bulk created {len(batch)} registros")
                 batch = []
 
         except Exception as e:
@@ -360,6 +427,11 @@ def _import_productos(df, empresa):
         with transaction.atomic():
             Producto.objects.bulk_create(batch, ignore_conflicts=True)
         imported += len(batch)
+        logger.info(f"[importacion][productos] bulk final creado {len(batch)} registros")
+        print(f"[importacion][productos] bulk final creado {len(batch)} registros")
+
+    logger.info(f"[importacion][productos] resultado: importados={imported}, errores={len(errors)}")
+    print(f"[importacion][productos] resultado: importados={imported}, errores={len(errors)}")
 
     return imported, errors
 
@@ -368,6 +440,9 @@ def _import_stock(df, empresa):
     """Bulk import stock from DataFrame."""
     from apps.productos.models import Producto
     from apps.inventario.models import Almacen, Stock
+
+    print(f"[importacion][stock] Iniciando import de {len(df)} filas")
+    logger.info(f"[importacion][stock] Iniciando import de {len(df)} filas")
 
     imported = 0
     errors = []
@@ -389,13 +464,16 @@ def _import_stock(df, empresa):
             almacen_codigo = str(row.get('almacen_codigo', '')).strip()
 
             if sku not in sku_map:
-                errors.append({
-                    'fila': row_num, 'hoja': 'stock',
-                    'error': f'SKU no encontrado: {sku}'
-                })
+                msg = f"SKU no encontrado: {sku}"
+                errors.append({'fila': row_num, 'hoja': 'stock', 'error': msg})
+                logger.warning(f"[importacion][stock] fila {row_num}: {msg}")
+                print(f"[importacion][stock] fila {row_num}: {msg}")
                 continue
 
             if almacen_codigo not in almacen_map:
+                msg = f"Almacén no encontrado: {almacen_codigo}. Se crea automáticamente"
+                logger.info(f"[importacion][stock] fila {row_num}: {msg}")
+                print(f"[importacion][stock] fila {row_num}: {msg}")
                 # Auto-create almacen
                 almacen_obj = Almacen.objects.create(
                     empresa=empresa, codigo=almacen_codigo,
@@ -423,9 +501,14 @@ def _import_stock(df, empresa):
                 }
             )
             imported += 1
+            logger.debug(f"[importacion][stock] fila {row_num} actualizado/creado stock: producto_id={sku_map[sku]}, almacen_id={almacen_map[almacen_codigo]}, cantidad={cantidad}")
+            print(f"[importacion][stock] fila {row_num} actualizado/creado stock: producto_id={sku_map[sku]}, almacen_id={almacen_map[almacen_codigo]}, cantidad={cantidad}")
 
         except Exception as e:
             errors.append({'fila': row_num, 'hoja': 'stock', 'error': str(e)})
+
+    logger.info(f"[importacion][stock] resultado: importados={imported}, errores={len(errors)}")
+    print(f"[importacion][stock] resultado: importados={imported}, errores={len(errors)}")
 
     return imported, errors
 
@@ -435,6 +518,9 @@ def _import_ventas(df, empresa):
     from apps.clientes.models import Cliente
     from apps.productos.models import Producto
     from apps.ventas.models import Venta, LineaVenta
+
+    print(f"[importacion][ventas] Iniciando import de {len(df)} filas")
+    logger.info(f"[importacion][ventas] Iniciando import de {len(df)} filas")
 
     imported = 0
     errors = []
@@ -553,5 +639,8 @@ def _import_ventas(df, empresa):
                 'fila': first_row_num, 'hoja': 'ventas',
                 'error': f'Error creando venta {numero}: {str(e)}'
             })
+
+    logger.info(f"[importacion][ventas] resultado: importados={imported}, errores={len(errors)}")
+    print(f"[importacion][ventas] resultado: importados={imported}, errores={len(errors)}")
 
     return imported, errors

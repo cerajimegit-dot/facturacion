@@ -151,14 +151,74 @@ def render():
                             st.success("Linea agregada.")
                             st.rerun()
 
+                st.divider()
+                st.subheader("Paso 3: Confirmar y Cobro")
+                
+                # Opción de marcar como pagada
+                col_pagada, col_fecha = st.columns(2)
+                with col_pagada:
+                    esta_pagada = st.checkbox(
+                        "✅ Esta factura ya fue pagada completamente",
+                        value=False,
+                        key="venta_pagada_check"
+                    )
+                with col_fecha:
+                    if esta_pagada:
+                        fecha_pago = st.date_input(
+                            "Fecha del Pago",
+                            key="venta_fecha_pago"
+                        )
+                
+                # Detalles de pago si está pagada
+                if esta_pagada:
+                    st.info("💳 Se registrará automáticamente el pago al confirmar")
+                    col_metodo, col_ref = st.columns(2)
+                    with col_metodo:
+                        metodo_pago = st.selectbox(
+                            "Método de Pago",
+                            ["transferencia", "efectivo", "cheque", "tarjeta", "otro"],
+                            key="venta_metodo_pago_confirm"
+                        )
+                    with col_ref:
+                        referencia_pago = st.text_input(
+                            "Referencia (opcional)",
+                            placeholder="Número de transacción, comprobante...",
+                            key="venta_ref_confirm"
+                        )
+                    
+                    obs_pago_confirm = st.text_area(
+                        "Observaciones del Pago",
+                        placeholder="Ej: Pago completo en primer contacto...",
+                        key="venta_obs_pago_confirm"
+                    )
+                
                 col_conf, col_clear = st.columns(2)
                 with col_conf:
                     if st.button("✅ Confirmar Venta", type="primary", use_container_width=True):
+                        # Confirmar venta
                         result, err = api.confirmar_venta(venta_id)
                         if err:
                             st.error(f"Error: {err}")
                         else:
-                            st.success("Venta confirmada! Se genero la cuenta por cobrar.")
+                            # Si está pagada, registrar el pago
+                            if esta_pagada:
+                                venta_detail, _ = api.get_venta(venta_id)
+                                if venta_detail:
+                                    pago_payload = {
+                                        "venta": venta_id,
+                                        "monto": str(venta_detail.get("total", 0)),
+                                        "metodo_pago": metodo_pago,
+                                        "referencia": referencia_pago,
+                                        "observaciones": obs_pago_confirm,
+                                    }
+                                    pago_result, pago_err = api.create_registro_pago(pago_payload)
+                                    if pago_err:
+                                        st.warning(f"Venta confirmada pero error registrando pago: {pago_err}")
+                                    else:
+                                        st.success("✅ Venta confirmada y pagada registrada completamente!")
+                            else:
+                                st.success("✅ Venta confirmada! Se genero la cuenta por cobrar.")
+                            
                             st.session_state.pop("venta_nueva_id", None)
                             st.rerun()
                 with col_clear:

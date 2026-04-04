@@ -8,7 +8,7 @@ from helpers import results, fmt
 def render():
     st.header("👥 Clientes")
 
-    tab_list, tab_new = st.tabs(["📋 Lista de Clientes", "➕ Nuevo Cliente"])
+    tab_list, tab_new, tab_edit = st.tabs(["📋 Lista de Clientes", "➕ Nuevo Cliente", "✏️ Editar"])
 
     # ── List ──────────────────────────────────────────────────────────────────
     with tab_list:
@@ -83,3 +83,54 @@ def render():
                     else:
                         st.success(f"✅ Cliente **{nombre}** creado.")
                         st.rerun()
+
+    # ── Edit ──────────────────────────────────────────────────────────────────
+    with tab_edit:
+        data, err = api.list_clientes()
+        if err:
+            st.error(f"Error: {err}")
+        else:
+            clientes = results(data)
+            if not clientes:
+                st.info("No hay clientes para editar.")
+            else:
+                cliente_options = {c["nombre"]: c for c in clientes}
+                selected_name = st.selectbox("Selecciona Cliente para Editar", options=cliente_options.keys(), key="edit_cliente_select")
+                
+                if selected_name:
+                    cli = cliente_options[selected_name]
+                    
+                    with st.form("edit_cliente"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            nombre = st.text_input("Nombre", value=cli.get("nombre", ""))
+                            ruc = st.text_input("RUC", value=cli.get("ruc", ""))
+                            tipo = st.selectbox("Tipo", ["persona", "empresa"], index=0 if cli.get("tipo_cliente") == "persona" else 1)
+                            telefono = st.text_input("Teléfono", value=cli.get("telefono", ""))
+                        with col2:
+                            email = st.text_input("Email", value=cli.get("email", ""))
+                            sector = st.text_input("Sector", value=cli.get("sector", ""))
+                            zona = st.text_input("Zona", value=cli.get("zona", ""))
+                            limite_credito = st.number_input("Límite de Crédito", min_value=0, value=int(cli.get("limite_credito", 0)), step=100000)
+
+                        direccion = st.text_area("Dirección de Facturación", value=cli.get("direccion_facturacion", ""))
+                        observaciones = st.text_area("Observaciones", value=cli.get("observaciones", ""))
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            activo = st.checkbox("Activo", value=cli.get("activo", True))
+
+                        if st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True):
+                            payload = {
+                                "nombre": nombre, "ruc": ruc, "tipo_cliente": tipo,
+                                "telefono": telefono, "email": email, "sector": sector,
+                                "zona": zona, "limite_credito": str(limite_credito),
+                                "direccion_facturacion": direccion,
+                                "observaciones": observaciones, "activo": activo,
+                            }
+                            result, err = api.update_cliente(cli["id"], payload)
+                            if err:
+                                st.error(f"Error: {err}")
+                            else:
+                                st.success(f"✅ Cliente **{nombre}** actualizado.")
+                                st.rerun()

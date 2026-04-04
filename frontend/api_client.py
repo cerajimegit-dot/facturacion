@@ -54,8 +54,21 @@ def register(email: str, password: str, nombre: str, apellido: str):
     return _handle(resp)
 
 
-def get_perfil():
-    resp = requests.get(f"{API_BASE}/auth/perfil/", headers=_headers())
+def register_full(data: dict):
+    """Full registration with optional empresa creation."""
+    resp = requests.post(f"{API_BASE}/auth/registro/", json=data)
+    return _handle(resp)
+
+
+def invitar_usuario(email: str, rol: str, first_name: str = "", last_name: str = ""):
+    """Invite a new user to the authenticated user's empresa."""
+    data = {
+        "email": email,
+        "rol": rol,
+        "first_name": first_name,
+        "last_name": last_name,
+    }
+    resp = requests.post(f"{API_BASE}/auth/invitar-usuario/", json=data, headers=_headers())
     return _handle(resp)
 
 
@@ -73,6 +86,22 @@ def create_empresa(data: dict):
 
 def update_empresa(empresa_id: str, data: dict):
     resp = requests.put(f"{API_BASE}/empresas/{empresa_id}/", json=data, headers=_headers())
+    return _handle(resp)
+
+
+def update_empresa_logo(empresa_id: str, logo_file):
+    """Upload logo file to empresa."""
+    headers = _headers()
+    # Remove Content-Type to let requests set it with boundary
+    if 'Content-Type' in headers:
+        del headers['Content-Type']
+    
+    files = {'logo': logo_file}
+    resp = requests.patch(
+        f"{API_BASE}/empresas/{empresa_id}/", 
+        headers=headers, 
+        files=files
+    )
     return _handle(resp)
 
 
@@ -174,16 +203,36 @@ def create_movimiento(data: dict):
     resp = requests.post(f"{API_BASE}/inventario/movimientos/", json=data, headers=_headers(), params=_empresa_param())
     return _handle(resp)
 
+def update_almacen(almacen_id: str, data: dict):
+    data.update(_empresa_param())
+    resp = requests.put(f"{API_BASE}/inventario/almacenes/{almacen_id}/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_almacen(almacen_id: str):
+    resp = requests.delete(f"{API_BASE}/inventario/almacenes/{almacen_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
 
 # ── Ventas ────────────────────────────────────────────────────────────────────
 
-def list_ventas():
-    resp = requests.get(f"{API_BASE}/ventas/", headers=_headers(), params=_empresa_param())
+def list_ventas(estado: str = ""):
+    """List ventas, optionally filtered by estado."""
+    params = _empresa_param()
+    if estado:
+        params["estado"] = estado
+    resp = requests.get(f"{API_BASE}/ventas/", headers=_headers(), params=params)
     return _handle(resp)
 
 
 def get_venta(venta_id: str):
     resp = requests.get(f"{API_BASE}/ventas/{venta_id}/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def update_venta(venta_id: str, data: dict):
+    """Update venta (e.g., observaciones_cobro)."""
+    data.update(_empresa_param())
+    resp = requests.patch(f"{API_BASE}/ventas/{venta_id}/", json=data, headers=_headers(), params=_empresa_param())
     return _handle(resp)
 
 
@@ -229,6 +278,23 @@ def get_cxc_resumen():
 
 def get_cxc_vencidas():
     resp = requests.get(f"{API_BASE}/ventas/cuentas-por-cobrar/vencidas/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+# ── Registros de Pago (Pagos Parciales) ──────────────────────────────────────
+
+def create_registro_pago(data: dict):
+    """Register a partial payment for an invoice."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/ventas/pagos/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def list_registro_pagos(**filters):
+    """List payment records."""
+    params = _empresa_param()
+    params.update(filters)
+    resp = requests.get(f"{API_BASE}/ventas/pagos/", headers=_headers(), params=params)
     return _handle(resp)
 
 
@@ -295,34 +361,100 @@ def upload_import(file, tipo: str):
     empresa = st.session_state.get("empresa_activa", {})
     token = st.session_state.get("access_token", "")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    files = {"archivo": (file.name, file, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+
+    # Handle different file types (UploadedFile or BytesIO)
+    if hasattr(file, 'name'):
+        filename = file.name
+        file_content = file
+    else:
+        filename = getattr(file, 'filename', 'import.xlsx')
+        file_content = file
+
+    files = {"archivo": (filename, file_content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
     data = {"tipo": tipo, "empresa": empresa.get("id", "")}
     resp = requests.post(f"{API_BASE}/importacion/upload/", headers=headers, files=files, data=data)
     return _handle(resp)
 
 
+def get_import_job(job_id: str):
+    resp = requests.get(f"{API_BASE}/importacion/{job_id}/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
 def validar_import(job_id: str):
-    resp = requests.post(f"{API_BASE}/importacion/{job_id}/validar/", headers=_headers())
+    resp = requests.post(f"{API_BASE}/importacion/{job_id}/validar/", headers=_headers(), params=_empresa_param())
     return _handle(resp)
 
 
 def confirmar_import(job_id: str):
-    resp = requests.post(f"{API_BASE}/importacion/{job_id}/confirmar/", headers=_headers())
+    resp = requests.post(f"{API_BASE}/importacion/{job_id}/confirmar/", headers=_headers(), params=_empresa_param())
     return _handle(resp)
 
 
 def cancelar_import(job_id: str):
-    resp = requests.post(f"{API_BASE}/importacion/{job_id}/cancelar/", headers=_headers())
+    resp = requests.post(f"{API_BASE}/importacion/{job_id}/cancelar/", headers=_headers(), params=_empresa_param())
     return _handle(resp)
 
 
 def get_import_reporte(job_id: str):
-    resp = requests.get(f"{API_BASE}/importacion/{job_id}/reporte/", headers=_headers())
+    resp = requests.get(f"{API_BASE}/importacion/{job_id}/reporte/", headers=_headers(), params=_empresa_param())
     return _handle(resp)
 
 
 # ── Auditoría ─────────────────────────────────────────────────────────────────
 
+
 def list_auditoria():
     resp = requests.get(f"{API_BASE}/auditoria/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+# ── Presupuestos ──────────────────────────────────────────────────────────────
+
+
+def list_presupuestos(estado: str = "", cliente: str = ""):
+    """List presupuestos for active empresa."""
+    params = _empresa_param()
+    if estado:
+        params["estado"] = estado
+    if cliente:
+        params["cliente"] = cliente
+    resp = requests.get(f"{API_BASE}/presupuestos/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def create_presupuesto(data: dict):
+    """Create a new presupuesto."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/presupuestos/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def get_presupuesto(presupuesto_id: str):
+    """Get presupuesto details."""
+    resp = requests.get(f"{API_BASE}/presupuestos/{presupuesto_id}/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def update_presupuesto(presupuesto_id: str, data: dict):
+    """Update presupuesto."""
+    resp = requests.patch(f"{API_BASE}/presupuestos/{presupuesto_id}/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_presupuesto(presupuesto_id: str):
+    """Delete presupuesto."""
+    resp = requests.delete(f"{API_BASE}/presupuestos/{presupuesto_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
+
+
+def enviar_presupuesto_email(presupuesto_id: str):
+    """Send presupuesto via email."""
+    resp = requests.post(f"{API_BASE}/presupuestos/{presupuesto_id}/enviar_email/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def enviar_presupuesto_whatsapp(presupuesto_id: str):
+    """Send presupuesto via WhatsApp."""
+    resp = requests.post(f"{API_BASE}/presupuestos/{presupuesto_id}/enviar_whatsapp/", headers=_headers(), params=_empresa_param())
     return _handle(resp)

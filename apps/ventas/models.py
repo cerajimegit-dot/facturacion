@@ -81,6 +81,9 @@ class Venta(TenantModel):
     # SIFEN fields (future integration)
     timbrado = models.CharField(max_length=30, blank=True, default='')
     cdc = models.CharField(max_length=50, blank=True, default='')
+    
+    # Observaciones de cobro y avance
+    observaciones_cobro = models.TextField(blank=True, default='', help_text='Observaciones sobre pagos y avance de cobro')
 
     objects = TenantManager()
 
@@ -201,3 +204,27 @@ class CuentaPorCobrar(TenantModel):
 
     def __str__(self):
         return f"CxC {self.venta.numero} - {self.cliente.nombre}: {self.saldo}"
+
+
+class RegistroPago(TenantModel):
+    """Record of partial payments for invoices."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    venta = models.ForeignKey(
+        Venta, on_delete=models.CASCADE, related_name='registro_pagos'
+    )
+    monto = models.DecimalField(max_digits=15, decimal_places=2)
+    fecha_pago = models.DateTimeField(auto_now_add=True)
+    metodo_pago = models.CharField(max_length=50, blank=True, default='')
+    referencia = models.CharField(max_length=100, blank=True, default='')
+    observaciones = models.TextField(blank=True, default='')
+    
+    objects = TenantManager()
+    
+    class Meta:
+        ordering = ['-fecha_pago']
+        verbose_name = 'Registro de Pago'
+        verbose_name_plural = 'Registros de Pago'
+    
+    def __str__(self):
+        return f"Pago {self.monto} - {self.venta.numero}"
+

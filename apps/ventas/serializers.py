@@ -1,6 +1,6 @@
 """Serializers for Ventas models."""
 from rest_framework import serializers
-from .models import Cotizacion, LineaCotizacion, Venta, LineaVenta, CuentaPorCobrar
+from .models import Cotizacion, LineaCotizacion, Venta, LineaVenta, CuentaPorCobrar, RegistroPago
 
 
 class LineaCotizacionSerializer(serializers.ModelSerializer):
@@ -58,7 +58,7 @@ class VentaSerializer(serializers.ModelSerializer):
             'estado', 'moneda', 'tipo_cambio',
             'subtotal', 'impuestos', 'descuento', 'total',
             'total_pagado', 'saldo_pendiente',
-            'metodo_pago', 'notas', 'vendedor',
+            'metodo_pago', 'notas', 'observaciones_cobro', 'vendedor',
             'timbrado', 'cdc',
             'lineas', 'created_at', 'updated_at',
         ]
@@ -94,3 +94,21 @@ class CuentaPorCobrarSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class RegistroPagoSerializer(serializers.ModelSerializer):
+    venta_numero = serializers.CharField(source='venta.numero', read_only=True)
+    
+    class Meta:
+        model = RegistroPago
+        fields = [
+            'id', 'venta', 'venta_numero', 'monto',
+            'fecha_pago', 'metodo_pago', 'referencia', 'observaciones'
+        ]
+        read_only_fields = ['id', 'fecha_pago']
+
+
+class RegistroPagoCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RegistroPago
+        fields = ['venta', 'monto', 'metodo_pago', 'referencia', 'observaciones']

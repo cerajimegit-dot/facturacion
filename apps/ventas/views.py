@@ -4,13 +4,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
+from django.db.models import Sum
 from apps.core.mixins import TenantQuerySetMixin
 from apps.core.permissions import IsEmpresaMember
-from .models import Cotizacion, LineaCotizacion, Venta, LineaVenta, CuentaPorCobrar
+from .models import Cotizacion, LineaCotizacion, Venta, LineaVenta, CuentaPorCobrar, RegistroPago
 from .serializers import (
     CotizacionSerializer, LineaCotizacionSerializer,
     VentaSerializer, VentaListSerializer, LineaVentaSerializer,
-    CuentaPorCobrarSerializer,
+    CuentaPorCobrarSerializer, RegistroPagoSerializer, RegistroPagoCreateSerializer,
 )
 
 
@@ -173,3 +174,43 @@ class CuentaPorCobrarViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
             cantidad_vencidas=Count('id'),
         )
         return Response({**total, **vencidas})
+
+
+class RegistroPagoViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
+    """ViewSet for recording partial payments."""
+    queryset = RegistroPago.objects.select_related('venta')
+    permission_classes = [IsAuthenticated, IsEmpresaMember]
+    filterset_fields = ['venta', 'metodo_pago']
+    search_fields = ['venta__numero', 'referencia']
+    ordering_fields = ['-fecha_pago']
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return RegistroPagoCreateSerializer
+        return RegistroPagoSerializer
+    
+    def create(self, request, *args, **kwargs):
+        """Create a payment record and update venta totals."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        with transaction.atomic():
+            pago = serializer.save(empresa=self.get_empresa())
+            venta = pago.venta
+            
+            # Update venta totals
+            total_pagos = RegistroPago.objects.filter(venta=venta).aggregate(
+                total=Sum('monto')
+            )['total'] or 0
+            
+            venta.total_pagado = total_pagos
+            venta.saldo_pendiente = venta.total - total_pagos
+            
+            if venta.saldo_pendiente <= 0:
+                venta.estado = 'pagada'
+            elif venta.total_pagado > 0:
+                venta.estado = 'parcial'
+            
+            venta.save(update_fields=['total_pagado', 'saldo_pendiente', 'estado'])
+        
+        return Response(RegistroPagoSerializer(pago).data, status=status.HTTP_201_CREATED)

@@ -50,15 +50,38 @@ def render():
                 is_active = (st.session_state.get("empresa_activa") or {}).get("id") == emp["id"]
                 badge = " ✅ **ACTIVA**" if is_active else ""
                 with st.expander(f"**{emp.get('codigo', '')}** — {emp.get('nombre', '')}{badge}"):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.write(f"**RUC:** {emp.get('ruc', '-')}")
-                        st.write(f"**Teléfono:** {emp.get('telefono', '-')}")
-                        st.write(f"**Email:** {emp.get('email', '-')}")
-                    with c2:
-                        st.write(f"**Dirección:** {emp.get('direccion', '-')}")
-                        st.write(f"**Moneda:** {emp.get('moneda_principal', emp.get('moneda', 'PYG'))}")
-                        st.write(f"**Activa:** {'Sí' if emp.get('activa', True) else 'No'}")
+                    col_logo, col_info = st.columns([1, 2])
+                    with col_logo:
+                        # Mostrar logo
+                        logo_url = emp.get("logo_url")
+                        if logo_url:
+                            st.image(logo_url, width=150, caption="Logo Empresa")
+                        else:
+                            st.info("Sin logo")
+                        # Upload logo
+                        logo_file = st.file_uploader(
+                            "Subir Logo", 
+                            type=["png", "jpg", "jpeg"],
+                            key=f"logo_{emp['id']}"
+                        )
+                        if logo_file:
+                            ok, err = api.update_empresa_logo(emp["id"], logo_file)
+                            if ok:
+                                st.success("✅ Logo actualizado")
+                                st.rerun()
+                            else:
+                                st.error(f"Error: {err}")
+                    
+                    with col_info:
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.write(f"**RUC:** {emp.get('ruc', '-')}")
+                            st.write(f"**Teléfono:** {emp.get('telefono', '-')}")
+                            st.write(f"**Email:** {emp.get('email', '-')}")
+                        with c2:
+                            st.write(f"**Dirección:** {emp.get('direccion', '-')}")
+                            st.write(f"**Moneda:** {emp.get('moneda_principal', emp.get('moneda', 'PYG'))}")
+                            st.write(f"**Activa:** {'Sí' if emp.get('activa', True) else 'No'}")
 
                     col_a, col_b = st.columns(2)
                     with col_a:
@@ -76,31 +99,38 @@ def render():
                                 st.error(f"Error: {e}")
 
     with tab_new:
-        with st.form("new_empresa"):
-            col1, col2 = st.columns(2)
-            with col1:
-                codigo = st.text_input("Código *", placeholder="EMP001")
-                nombre = st.text_input("Nombre *", placeholder="Mi Empresa S.A.")
-                ruc = st.text_input("RUC", placeholder="80012345-6")
-            with col2:
-                telefono = st.text_input("Teléfono", placeholder="+595 21 123456")
-                email = st.text_input("Email", placeholder="info@miempresa.com")
-                moneda = st.selectbox("Moneda", ["PYG", "USD"])
-            direccion = st.text_area("Dirección", placeholder="Calle Principal 123, Asunción")
+        if empresas:
+            st.warning("⚠️ Ya tienes una empresa. No puedes crear más empresas.")
+            st.info("""
+            Si necesitas crear una nueva empresa, crea una cuenta diferente o contacta a tu administrador.
+            """)
+        else:
+            st.info("📋 Crea tu primera empresa para comenzar a usar el sistema.")
+            with st.form("new_empresa"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    codigo = st.text_input("Código *", placeholder="EMP001")
+                    nombre = st.text_input("Nombre *", placeholder="Mi Empresa S.A.")
+                    ruc = st.text_input("RUC", placeholder="80012345-6")
+                with col2:
+                    telefono = st.text_input("Teléfono", placeholder="+595 21 123456")
+                    email = st.text_input("Email", placeholder="info@miempresa.com")
+                    moneda = st.selectbox("Moneda", ["PYG", "USD"])
+                direccion = st.text_area("Dirección", placeholder="Calle Principal 123, Asunción")
 
-            if st.form_submit_button("Crear Empresa", type="primary", use_container_width=True):
-                if not codigo or not nombre:
-                    st.error("Código y Nombre son obligatorios.")
-                else:
-                    payload = {
-                        "codigo": codigo, "nombre": nombre, "ruc": ruc,
-                        "telefono": telefono, "email": email,
-                        "moneda_principal": moneda, "direccion": direccion,
-                    }
-                    result, err = api.create_empresa(payload)
-                    if err:
-                        st.error(f"Error: {err}")
+                if st.form_submit_button("Crear Empresa", type="primary", use_container_width=True):
+                    if not codigo or not nombre:
+                        st.error("Código y Nombre son obligatorios.")
                     else:
-                        st.success(f"✅ Empresa **{nombre}** creada. Ya puedes navegar a otras secciones.")
-                        st.session_state["empresa_activa"] = result
-                        st.rerun()
+                        payload = {
+                            "codigo": codigo, "nombre": nombre, "ruc": ruc,
+                            "telefono": telefono, "email": email,
+                            "moneda_principal": moneda, "direccion": direccion,
+                        }
+                        result, err = api.create_empresa(payload)
+                        if err:
+                            st.error(f"Error: {err}")
+                        else:
+                            st.success(f"✅ Empresa **{nombre}** creada. Ya puedes navegar a otras secciones.")
+                            st.session_state["empresa_activa"] = result
+                            st.rerun()

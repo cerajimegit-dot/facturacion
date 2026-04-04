@@ -27,6 +27,25 @@ class AuditMiddleware(MiddlewareMixin):
     AUDIT_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
     SKIP_PATHS = ('/api/v1/auth/login/', '/api/v1/auth/token/refresh/', '/api/schema/')
 
+    @staticmethod
+    def _safe_serialize(data):
+        if isinstance(data, dict):
+            return {k: AuditMiddleware._safe_serialize(v) for k, v in data.items()}
+        if isinstance(data, list):
+            return [AuditMiddleware._safe_serialize(v) for v in data]
+        if isinstance(data, tuple):
+            return [AuditMiddleware._safe_serialize(v) for v in data]
+        if isinstance(data, uuid_mod.UUID):
+            return str(data)
+        if isinstance(data, Decimal):
+            return str(data)
+        if isinstance(data, (int, float, str, bool)) or data is None:
+            return data
+        try:
+            return json.loads(json.dumps(data, cls=_SafeEncoder))
+        except Exception:
+            return str(data)
+
     def process_response(self, request, response):
         if request.method not in self.AUDIT_METHODS:
             return response
@@ -69,11 +88,11 @@ class AuditMiddleware(MiddlewareMixin):
             datos_nuevos = None
             if hasattr(response, 'data'):
                 try:
-                    raw = response.data if isinstance(response.data, dict) else None
-                    if raw is not None:
-                        datos_nuevos = json.loads(json.dumps(raw, cls=_SafeEncoder))
+                    raw = response.data
+                    datos_nuevos = AuditMiddleware._safe_serialize(raw)
                 except Exception:
-                    pass
+                    logger.exception("Error serializing datos_nuevos in audit middleware")
+                    datos_nuevos = None
 
             ip = self._get_client_ip(request)
 
@@ -89,7 +108,7 @@ class AuditMiddleware(MiddlewareMixin):
                 descripcion=f"{request.method} {request.path}",
             )
         except Exception as e:
-            logger.error(f"Error in audit middleware: {e}")
+            logger.exception(f"Error in audit middleware: {e}")
 
         return response
 

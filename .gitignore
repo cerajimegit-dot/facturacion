@@ -19,6 +19,7 @@ venv/
 .idea/
 *.swp
 *.swo
+*.md
 
 # Django
 *.sqlite3

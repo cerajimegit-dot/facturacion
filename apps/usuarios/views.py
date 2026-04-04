@@ -11,6 +11,7 @@ from .serializers import (
     UsuarioSerializer,
     CambiarPasswordSerializer,
     MembershipSerializer,
+    InvitarUsuarioSerializer,
 )
 
 
@@ -19,7 +20,7 @@ class EmailLoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = EmailTokenObtainSerializer(data=request.data)
+        serializer = EmailTokenObtainSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
@@ -71,3 +72,41 @@ class MembershipViewSet(viewsets.ModelViewSet):
             empresa__memberships__usuario=self.request.user,
             empresa__memberships__activo=True,
         ).distinct()
+
+
+class InvitarUsuarioView(APIView):
+    """Invite a new user to the authenticated user's empresa."""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        # Check that user belongs to an empresa
+        if not request.user.empresa:
+            return Response(
+                {'error': 'Usuario no tiene empresa asignada'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check permissions - only admins can invite
+        if request.user.rol != 'admin':
+            return Response(
+                {'error': 'Solo administradores pueden invitar usuarios'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = InvitarUsuarioSerializer(
+            data=request.data,
+            context={'empresa': request.user.empresa}
+        )
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        
+        return Response(
+            {
+                'id': str(user.id),
+                'email': user.email,
+                'nombre': user.get_full_name(),
+                'rol': user.rol,
+                'mensaje': 'Usuario invitado correctamente'
+            },
+            status=status.HTTP_201_CREATED
+        )

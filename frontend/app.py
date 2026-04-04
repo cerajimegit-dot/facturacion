@@ -8,6 +8,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Optimizar visualización del sidebar ───────────────────────────────────────
+st.markdown("""
+    <style>
+    /* Ocultar el contenedor envolvente pero mantener la navegación visible */
+    [data-testid="stSidebarNav"] {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # ── Session state defaults ────────────────────────────────────────────────────
 for key, default in {
     "access_token": None,
@@ -23,11 +34,14 @@ for key, default in {
 from pages import login as pg_login
 from pages import dashboard as pg_dashboard
 from pages import empresas as pg_empresas
+from pages import usuarios as pg_usuarios
 from pages import clientes as pg_clientes
 from pages import productos as pg_productos
 from pages import inventario as pg_inventario
 from pages import ventas as pg_ventas
+from pages import cobros as pg_cobros
 from pages import pagos as pg_pagos
+from pages import presupuestos as pg_presupuestos
 from pages import importacion as pg_importacion
 from pages import reportes as pg_reportes
 from pages import auditoria as pg_auditoria
@@ -58,11 +72,12 @@ with st.sidebar:
 
     menu_items = {
         "dashboard": "📈 Dashboard",
-        "empresas": "🏢 Empresas",
-        "clientes": "👥 Clientes",
+        "empresas": "🏢 Empresas",        "usuarios": "👥 Usuarios",        "clientes": "👥 Clientes",
         "productos": "📦 Productos",
         "inventario": "🏭 Inventario",
         "ventas": "🧾 Ventas",
+        "cobros": "💳 Cobros Parciales",
+        "presupuestos": "📋 Presupuestos",
         "pagos": "💰 Pagos",
         "importacion": "📥 Importación Excel",
         "reportes": "📊 Reportes",
@@ -91,10 +106,13 @@ if needs_empresa and not st.session_state.get("empresa_activa"):
 page_map = {
     "dashboard": pg_dashboard,
     "empresas": pg_empresas,
+    "usuarios": pg_usuarios,
     "clientes": pg_clientes,
     "productos": pg_productos,
     "inventario": pg_inventario,
     "ventas": pg_ventas,
+    "cobros": pg_cobros,
+    "presupuestos": pg_presupuestos,
     "pagos": pg_pagos,
     "importacion": pg_importacion,
     "reportes": pg_reportes,

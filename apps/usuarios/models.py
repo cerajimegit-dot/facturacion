@@ -8,6 +8,16 @@ from apps.core.models import TimeStampedModel
 class Usuario(AbstractUser):
     """Extended user model for the billing system."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    empresa = models.ForeignKey(
+        'empresas.Empresa', on_delete=models.CASCADE, related_name='usuarios',
+        null=True, blank=True, help_text='Empresa a la que pertenece el usuario'
+    )
+    rol = models.CharField(
+        max_length=20, 
+        choices=[('admin', 'Administrador'), ('vendedor', 'Vendedor'), ('contador', 'Contador')],
+        default='vendedor',
+        help_text='Rol dentro de su empresa'
+    )
     telefono = models.CharField(max_length=50, blank=True, default='')
     avatar = models.ImageField(upload_to='usuarios/avatars/', blank=True, null=True)
     idioma = models.CharField(max_length=5, default='es')

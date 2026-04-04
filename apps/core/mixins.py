@@ -12,9 +12,22 @@ class TenantQuerySetMixin:
         )
         if not empresa_id:
             raise ValidationError({'empresa': 'Este parámetro es requerido.'})
+        
+        # Check membership via Membership model
         membership = self.request.user.memberships.filter(
             empresa_id=empresa_id, activo=True
         ).first()
+        
+        # Fallback: Check if user's direct empresa matches
+        if not membership and self.request.user.empresa_id == empresa_id:
+            # Create membership if it doesn't exist (backward compatibility)
+            from apps.usuarios.models import Membership
+            membership, _ = Membership.objects.get_or_create(
+                usuario=self.request.user,
+                empresa_id=empresa_id,
+                defaults={'rol': self.request.user.rol, 'activo': True}
+            )
+        
         if not membership:
             raise ValidationError({'empresa': 'No tiene acceso a esta empresa.'})
         return membership.empresa

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+        }
+        .header {
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .company-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .presupuesto-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 3px;
+        }
+        .info-group {
+            flex: 1;
+        }
+        .label {
+            font-weight: bold;
+            color: #666;
+            font-size: 12px;
+        }
+        .value {
+            font-size: 14px;
+            color: #333;
+        }
+        .cliente-info {
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 3px;
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #007bff;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        .totals {
+            margin: 20px 0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            padding: 15px;
+        }
+        .total-row {
+            display: flex;
+            justify-content: flex-end;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .total-row:last-child {
+            border-bottom: none;
+        }
+        .total-label {
+            font-weight: bold;
+            margin-right: 20px;
+            min-width: 150px;
+            text-align: right;
+        }
+        .total-value {
+            min-width: 100px;
+            text-align: right;
+        }
+        .total-final {
+            background-color: #007bff;
+            color: white;
+            border-radius: 3px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        .total-final .total-label,
+        .total-final .total-value {
+            color: white;
+            font-size: 18px;
+        }
+        .conditions {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #007bff;
+            border-radius: 3px;
+        }
+        .conditions-title {
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+        }
+        .validity {
+            color: #666;
+            font-size: 12px;
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 3px;
+        }
+        .amount-currency {
+            font-weight: bold;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="company-name">{{ empresa.nombre }}</div>
+        </div>
+
+        <div class="presupuesto-info">
+            <div class="info-group">
+                <div class="label">Presupuesto #</div>
+                <div class="value">{{ presupuesto.numero }}</div>
+            </div>
+            <div class="info-group">
+                <div class="label">Fecha de Emisión</div>
+                <div class="value">{{ presupuesto.fecha_creacion|date:"d/m/Y" }}</div>
+            </div>
+            <div class="info-group">
+                <div class="label">Válido Hasta</div>
+                <div class="value">{{ presupuesto.fecha_vigencia|date:"d/m/Y" }}</div>
+            </div>
+            <div class="info-group">
+                <div class="label">Estado</div>
+                <div class="value">{{ presupuesto.estado|title }}</div>
+            </div>
+        </div>
+
+        <div class="section-title">Datos del Cliente</div>
+        <div class="cliente-info">
+            <div><strong>{{ presupuesto.cliente.nombre }}</strong></div>
+            <div>{{ presupuesto.cliente.email }}</div>
+            {% if presupuesto.cliente.telefono %}<div>{{ presupuesto.cliente.telefono }}</div>{% endif %}
+            {% if presupuesto.cliente.ciudad %}<div>{{ presupuesto.cliente.ciudad }}</div>{% endif %}
+        </div>
+
+        <div class="section-title">Detalle de Presupuesto</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Descripción</th>
+                    <th>Cantidad</th>
+                    <th>Precio Unitario</th>
+                    <th>Subtotal</th>
+                    <th>Impuesto</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for detalle in presupuesto.detalles.all %}
+                <tr>
+                    <td>
+                        {% if detalle.descripcion %}
+                            {{ detalle.descripcion }}
+                        {% elif detalle.producto %}
+                            {{ detalle.producto.nombre }}
+                        {% else %}
+                            Sin descripción
+                        {% endif %}
+                    </td>
+                    <td style="text-align: center;">{{ detalle.cantidad }}</td>
+                    <td style="text-align: right;"><span class="amount-currency">${{ detalle.precio_unitario|floatformat:2 }}</span></td>
+                    <td style="text-align: right;"><span class="amount-currency">${{ detalle.subtotal|floatformat:2 }}</span></td>
+                    <td style="text-align: right;"><span class="amount-currency">${{ detalle.total_impuesto|floatformat:2 }}</span></td>
+                    <td style="text-align: right;"><span class="amount-currency">${{ detalle.total|floatformat:2 }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="totals">
+            <div class="total-row">
+                <div class="total-label">Subtotal:</div>
+                <div class="total-value"><span class="amount-currency">${{ presupuesto.subtotal|floatformat:2 }}</span></div>
+            </div>
+            <div class="total-row">
+                <div class="total-label">Impuestos:</div>
+                <div class="total-value"><span class="amount-currency">${{ presupuesto.total_impuesto|floatformat:2 }}</span></div>
+            </div>
+            <div class="total-row total-final">
+                <div class="total-label">Total:</div>
+                <div class="total-value"><span class="amount-currency">${{ presupuesto.total|floatformat:2 }}</span></div>
+            </div>
+        </div>
+
+        {% if presupuesto.condiciones_pago %}
+        <div class="conditions">
+            <div class="conditions-title">Condiciones de Pago</div>
+            <div>{{ presupuesto.condiciones_pago }}</div>
+        </div>
+        {% endif %}
+
+        <div class="validity">
+            <strong>Validez del Presupuesto:</strong> Este presupuesto es válido hasta el {{ presupuesto.fecha_vigencia|date:"d/m/Y" }}. 
+            Después de esta fecha, el precio puede cambiar sin previo aviso.
+        </div>
+
+        <div class="footer">
+            <p>Este es un presupuesto automático de {{ empresa.nombre }}</p>
+            <p>Para consultas contacte: {{ empresa.email }} | {{ empresa.telefono }}</p>
+            <p>Presupuesto generado el {{ presupuesto.fecha_creacion|date:"d/m/Y H:i" }}</p>
+        </div>
+    </div>
+</body>
+</html>
