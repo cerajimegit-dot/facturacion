@@ -474,3 +474,151 @@ def enviar_presupuesto_whatsapp(presupuesto_id: str):
     """Send presupuesto via WhatsApp."""
     resp = requests.post(f"{API_BASE}/presupuestos/{presupuesto_id}/enviar_whatsapp/", headers=_headers(), params=_empresa_param())
     return _handle(resp)
+
+
+# ── Compras (Purchases) ───────────────────────────────────────────────────────
+
+def list_proveedores(search: str = ""):
+    """List suppliers."""
+    params = _empresa_param()
+    if search:
+        params["search"] = search
+    resp = requests.get(f"{API_BASE}/compras/proveedores/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def create_proveedor(data: dict):
+    """Create a new supplier."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/compras/proveedores/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def get_proveedor(proveedor_id: str):
+    """Get supplier details."""
+    resp = requests.get(f"{API_BASE}/compras/proveedores/{proveedor_id}/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def update_proveedor(proveedor_id: str, data: dict):
+    """Update supplier."""
+    resp = requests.patch(f"{API_BASE}/compras/proveedores/{proveedor_id}/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_proveedor(proveedor_id: str):
+    """Delete supplier."""
+    resp = requests.delete(f"{API_BASE}/compras/proveedores/{proveedor_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
+
+
+def list_compras(estado: str = "", search: str = ""):
+    """List purchases."""
+    params = _empresa_param()
+    if estado:
+        params["estado"] = estado
+    if search:
+        params["search"] = search
+    resp = requests.get(f"{API_BASE}/compras/compras/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def create_compra(data: dict):
+    """Create a new purchase."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/compras/compras/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def get_compra(compra_id: str):
+    """Get purchase details."""
+    resp = requests.get(f"{API_BASE}/compras/compras/{compra_id}/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def update_compra(compra_id: str, data: dict):
+    """Update purchase."""
+    resp = requests.patch(f"{API_BASE}/compras/compras/{compra_id}/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_compra(compra_id: str):
+    """Delete purchase."""
+    resp = requests.delete(f"{API_BASE}/compras/compras/{compra_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
+
+
+def recibir_compra(compra_id: str):
+    """Receive/ingest a purchase to stock."""
+    resp = requests.post(f"{API_BASE}/compras/compras/{compra_id}/recibir/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def cancelar_compra(compra_id: str):
+    """Cancel a pending purchase."""
+    resp = requests.post(f"{API_BASE}/compras/compras/{compra_id}/cancelar/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def resumen_mes_compras(mes: int, ano: int):
+    """Get monthly purchase summary."""
+    params = _empresa_param()
+    params["mes"] = mes
+    params["ano"] = ano
+    resp = requests.get(f"{API_BASE}/compras/compras/resumen_mes/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def list_categorias_gasto():
+    """List expense categories."""
+    resp = requests.get(f"{API_BASE}/compras/categorias-gasto/", headers=_headers())
+    return _handle(resp)
+
+
+def create_categoria_gasto(data: dict):
+    """Create expense category."""
+    resp = requests.post(f"{API_BASE}/compras/categorias-gasto/", json=data, headers=_headers())
+    return _handle(resp)
+
+
+def list_gastos(categoria: str = ""):
+    """List expenses."""
+    params = _empresa_param()
+    if categoria:
+        params["categoria"] = categoria
+    resp = requests.get(f"{API_BASE}/compras/gastos/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def create_gasto(data: dict):
+    """Create a new expense."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/compras/gastos/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def update_gasto(gasto_id: str, data: dict):
+    """Update expense."""
+    resp = requests.patch(f"{API_BASE}/compras/gastos/{gasto_id}/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_gasto(gasto_id: str):
+    """Delete expense."""
+    resp = requests.delete(f"{API_BASE}/compras/gastos/{gasto_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
+
+
+def aprobar_gasto(gasto_id: str):
+    """Approve an expense."""
+    resp = requests.post(f"{API_BASE}/compras/gastos/{gasto_id}/aprobar/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def resumen_categoria_gastos(mes: int, ano: int):
+    """Get expense summary by category."""
+    params = _empresa_param()
+    params["mes"] = mes
+    params["ano"] = ano
+    resp = requests.get(f"{API_BASE}/compras/gastos/resumen_categoria/", headers=_headers(), params=params)
+    return _handle(resp)

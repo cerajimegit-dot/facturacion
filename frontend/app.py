@@ -40,6 +40,8 @@ from pages import productos as pg_productos
 from pages import inventario as pg_inventario
 from pages import ventas as pg_ventas
 from pages import cobros as pg_cobros
+from pages import compras as pg_compras
+from pages import gastos_dashboard as pg_gastos_dashboard
 from pages import pagos as pg_pagos
 from pages import presupuestos as pg_presupuestos
 from pages import importacion as pg_importacion
@@ -72,11 +74,15 @@ with st.sidebar:
 
     menu_items = {
         "dashboard": "📈 Dashboard",
-        "empresas": "🏢 Empresas",        "usuarios": "👥 Usuarios",        "clientes": "👥 Clientes",
+        "empresas": "🏢 Empresas",
+        "usuarios": "👥 Usuarios",
+        "clientes": "👥 Clientes",
         "productos": "📦 Productos",
         "inventario": "🏭 Inventario",
         "ventas": "🧾 Ventas",
         "cobros": "💳 Cobros Parciales",
+        "compras": "🛒 Compras",
+        "gastos_dashboard": "📊 Dashboard Gastos",
         "presupuestos": "📋 Presupuestos",
         "pagos": "💰 Pagos",
         "importacion": "📥 Importación Excel",
@@ -112,6 +118,8 @@ page_map = {
     "inventario": pg_inventario,
     "ventas": pg_ventas,
     "cobros": pg_cobros,
+    "compras": pg_compras,
+    "gastos_dashboard": pg_gastos_dashboard,
     "presupuestos": pg_presupuestos,
     "pagos": pg_pagos,
     "importacion": pg_importacion,

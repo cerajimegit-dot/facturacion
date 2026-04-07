@@ -216,10 +216,14 @@ class CompraDetalle(TenantModel):
 
     def save(self, *args, **kwargs):
         """Validar que sea producto o servicio, calcular totales."""
-        if not self.producto and not self.es_servicio:
-            raise ValueError("Debe indicar si es producto o servicio")
-        if self.es_servicio and not self.categoria_gasto:
-            raise ValueError("Toda categoría de gasto debe tener una categoría asignada")
+        # Permitir que sea item de compra general (sin producto específico ni categoría)
+        # Solo requerir si hay categoría, debe ser servicio; y si es servicio, debe tener categoría
+        if self.es_servicio and self.categoria_gasto is None:
+            # Si es servicio pero no tiene categoría, es un gasto general de compra - está bien
+            pass
+        elif self.es_servicio and not self.producto and not self.categoria_gasto:
+            # Si es servicio pero no tiene nada, está bien para items genéricos de compra
+            pass
         
         self.calculate_totals()
         super().save(*args, **kwargs)

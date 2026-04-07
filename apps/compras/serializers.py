@@ -1,4 +1,5 @@
 """Serializers para compras y gastos."""
+from decimal import Decimal
 from rest_framework import serializers
 from .models import Proveedor, Compra, CompraDetalle, Gasto, CategoriaGasto
 
@@ -98,23 +99,110 @@ class CompraListSerializer(serializers.ModelSerializer):
 
 
 class CompraSerializer(serializers.ModelSerializer):
-    """Serializer para crear y actualizar compras."""
+    """Serializer para crear y actualizar compras con detalles."""
+    detalles = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True,
+        required=False,
+        help_text="Lista de items de la compra"
+    )
+
     class Meta:
         model = Compra
         fields = [
             'id', 'numero', 'fecha', 'proveedor', 'almacen',
-            'moneda', 'cotizacion_usd', 'notas',
+            'moneda', 'cotizacion_usd', 'notas', 'detalles',
+            'subtotal', 'impuestos_total', 'total',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'subtotal', 'impuestos_total', 'total',
+            'created_at', 'updated_at'
+        ]
 
     def validate(self, data):
-        """Validar que USD tenga cotización."""
+        """Validar que USD tenga cotización y que haya detalles."""
         if data.get('moneda') == 'USD' and not data.get('cotizacion_usd'):
-            raise serializers.ValidationError(
-                "La cotización USD es obligatoria cuando la moneda es USD"
-            )
+            raise serializers.ValidationError({
+                'cotizacion_usd': "La cotización USD es obligatoria cuando la moneda es USD"
+            })
+        
+        detalles = data.get('detalles', [])
+        if not detalles or len(detalles) == 0:
+            raise serializers.ValidationError({
+                'detalles': "Debe agregar al menos un item a la compra"
+            })
+        
+        # Validar que cada detalle tenga datos requeridos
+        for idx, detalle in enumerate(detalles):
+            if not detalle.get('descripcion'):
+                raise serializers.ValidationError({
+                    'detalles': f"Item {idx + 1}: La descripción es obligatoria"
+                })
+            if not detalle.get('cantidad') or float(detalle.get('cantidad', 0)) <= 0:
+                raise serializers.ValidationError({
+                    'detalles': f"Item {idx + 1}: La cantidad debe ser mayor a 0"
+                })
+            if not detalle.get('precio_unitario') or float(detalle.get('precio_unitario', 0)) < 0:
+                raise serializers.ValidationError({
+                    'detalles': f"Item {idx + 1}: El precio debe ser válido"
+                })
+        
         return data
+
+    def create(self, validated_data):
+        """Crear compra con detalles y calcular totales."""
+        detalles_data = validated_data.pop('detalles', [])
+        
+        # Obtener empresa del usuario (TenantModel required)
+        request = self.context.get('request')
+        empresa = request.user.empresa if request and hasattr(request, 'user') else None
+        
+        if not empresa:
+            raise serializers.ValidationError({
+                'empresa': 'No empresa found for user'
+            })
+        
+        # Crear la compra con empresa
+        validated_data['empresa'] = empresa
+        compra = Compra.objects.create(**validated_data)
+        
+        # Crear detalles y calcular totales
+        subtotal_total = Decimal('0')
+        impuestos_total = Decimal('0')
+        
+        for detalle_data in detalles_data:
+            cantidad = Decimal(str(detalle_data.get('cantidad', 0)))
+            precio_unitario = Decimal(str(detalle_data.get('precio_unitario', 0)))
+            impuesto_porcentaje = Decimal(str(detalle_data.get('impuesto_porcentaje', 0)))
+            
+            # Calcular subtotal del item
+            subtotal_item = cantidad * precio_unitario
+            impuestos_item = subtotal_item * (impuesto_porcentaje / Decimal('100'))
+            
+            # Crear el detalle como SERVICIO (no requiere producto específico)
+            # IMPORTANTE: Pasar empresa para TenantModel
+            CompraDetalle.objects.create(
+                compra=compra,
+                empresa=compra.empresa,  # Pasar empresa ya que CompraDetalle hereda de TenantModel
+                descripcion=detalle_data.get('descripcion'),
+                cantidad=cantidad,
+                precio_unitario=precio_unitario,
+                impuesto_porcentaje=impuesto_porcentaje,
+                es_servicio=True  # Por defecto son servicios/gastos generales
+            )
+            
+            # Acumular totales
+            subtotal_total += subtotal_item
+            impuestos_total += impuestos_item
+        
+        # Actualizar totales en la compra
+        compra.subtotal = subtotal_total
+        compra.impuestos_total = impuestos_total
+        compra.total = subtotal_total + impuestos_total
+        compra.save()
+        
+        return compra
 
 
 class GastoSerializer(serializers.ModelSerializer):

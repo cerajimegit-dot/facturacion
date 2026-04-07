@@ -70,8 +70,9 @@ class CompraViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
             return CompraDetailedSerializer
         return CompraSerializer
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        """Registrar usuario al crear compra."""
+        """Registrar usuario al crear compra con transacción atómica."""
         empresa = self.get_empresa()
         serializer.save(
             empresa=empresa,
