@@ -1,9 +1,17 @@
 """Login & Registration page."""
 import streamlit as st
 import api_client as api
+import session_manager
 
 
 def render():
+    # Mostrar indicador si está restaurando sesión
+    if "restoring_session" not in st.session_state:
+        st.session_state.restoring_session = False
+    
+    if st.session_state.restoring_session:
+        st.info("⏳ Restaurando sesión guardada...")
+    
     st.markdown(
         "<h1 style='text-align:center;'>📊 Sistema de Facturación</h1>"
         "<p style='text-align:center;color:gray;'>Multi-Empresa</p>",
@@ -18,6 +26,7 @@ def render():
             with st.form("login_form"):
                 email = st.text_input("Email", placeholder="admin@example.com")
                 password = st.text_input("Contraseña", type="password")
+                remember = st.checkbox("✅ Recordarme en este dispositivo", value=False, help="Se guardará tu sesión de forma segura")
                 submitted = st.form_submit_button("Ingresar", use_container_width=True, type="primary")
 
                 if submitted:
@@ -46,6 +55,16 @@ def render():
                                 logo_url = empresa_data.get("logo_url")
                                 if logo_url:
                                     st.image(logo_url, width=200)
+                            
+                            # 💾 Guardar sesión si lo desea el usuario
+                            if remember:
+                                session_manager.save_session(
+                                    st.session_state["access_token"],
+                                    st.session_state["refresh_token"],
+                                    st.session_state["user"],
+                                    st.session_state["empresa_activa"],
+                                )
+                                st.success("✅ Sesión guardada. Próximas veces se cargará automáticamente.")
                             
                             st.success("¡Bienvenido!")
                             st.rerun()

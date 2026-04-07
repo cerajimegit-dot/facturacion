@@ -7,9 +7,12 @@ from django.utils import timezone
 from datetime import datetime
 
 from apps.compras.models import Compra
-from apps.contabilidad.models import Asiento, LineaAsiento
+from apps.contabilidad.models import Asiento, LineaAsiento, PlanCuentas, CotizacionDiaria
 from apps.productos.models import Producto
 from apps.compras.models import Proveedor
+
+# Código fijo de la cuenta de IVA Crédito Fiscal
+IVA_CREDITO_FISCAL_CODIGO = '1.01.03.05.03'
 
 
 @receiver(post_save, sender=Compra)
@@ -17,10 +20,17 @@ def generar_asiento_compra(sender, instance, created, **kwargs):
     """
     Generar asiento contable automáticamente al recibir una compra.
     
-    Debe: Cuenta contable del producto
-    Haber: Cuenta contable del proveedor
+    Por cada detalle con IVA:
+      Debe: Cuenta contable del producto → subtotal (sin IVA)
+      Debe: 1.01.03.05.03 IVA CRÉDITO FISCAL → monto IVA
+    Haber: Cuenta contable del proveedor → total (con IVA)
     """
-    if not created or instance.estado == 'pendiente':
+    # Solo generar asiento cuando la compra es recepcionada
+    if instance.estado != 'recepcionada':
+        return
+    
+    # Evitar duplicados
+    if Asiento.objects.filter(compra=instance).exists():
         return
     
     try:
@@ -30,6 +40,18 @@ def generar_asiento_compra(sender, instance, created, **kwargs):
         proveedor = instance.proveedor
         if not hasattr(proveedor, 'cuenta_contable') or not proveedor.cuenta_contable:
             raise ValueError(f"Proveedor {proveedor.nombre} sin cuenta contable")
+        
+        # Obtener cuenta IVA Crédito Fiscal
+        cuenta_iva = PlanCuentas.objects.filter(
+            empresa=empresa,
+            codigo_cuenta=IVA_CREDITO_FISCAL_CODIGO,
+            activa=True
+        ).first()
+        if not cuenta_iva:
+            raise ValueError(
+                f"Cuenta {IVA_CREDITO_FISCAL_CODIGO} (IVA Crédito Fiscal) "
+                f"no encontrada para empresa {empresa.nombre}"
+            )
         
         # Crear asiento
         numero_asiento = _generar_numero_asiento(empresa)
@@ -46,7 +68,7 @@ def generar_asiento_compra(sender, instance, created, **kwargs):
         )
         
         total_debe = Decimal('0')
-        total_haber = Decimal('0')
+        total_iva = Decimal('0')
         
         # Crear líneas por cada detalle de compra
         for detalle in instance.detalles.all():
@@ -56,39 +78,76 @@ def generar_asiento_compra(sender, instance, created, **kwargs):
             if not producto or not hasattr(producto, 'cuenta_contable') or not producto.cuenta_contable:
                 raise ValueError(f"Producto {detalle.descripcion} sin cuenta contable")
             
-            # Convertir a PYG si es USD
-            cantidad_pesos = detalle.precio_unitario * detalle.cantidad
-            if instance.moneda == 'USD' and hasattr(instance, 'cotizacion_usd') and instance.cotizacion_usd:
-                cantidad_pesos = cantidad_pesos * instance.cotizacion_usd
+            # Precio incluye IVA: total = precio * cantidad, neto = total / (1 + iva%)
+            total_linea = detalle.precio_unitario * detalle.cantidad
+            if detalle.impuesto_porcentaje and detalle.impuesto_porcentaje > 0:
+                divisor = Decimal('1') + (detalle.impuesto_porcentaje / Decimal('100'))
+                subtotal_neto = (total_linea / divisor).quantize(Decimal('0.01'))
+                monto_iva = total_linea - subtotal_neto
+            else:
+                subtotal_neto = total_linea
+                monto_iva = Decimal('0')
             
-            # Línea de DEBE (producto)
+            # Convertir a PYG si es USD usando cotización diaria
+            if instance.moneda == 'USD':
+                cotizacion = CotizacionDiaria.objects.filter(
+                    empresa=empresa,
+                    fecha=instance.fecha,
+                    moneda_origen='USD',
+                    moneda_destino='PYG',
+                ).first()
+                if not cotizacion:
+                    raise ValueError(
+                        f"No hay cotización USD/PYG para la fecha {instance.fecha}. "
+                        f"Cargue la cotización del día antes de recepcionar."
+                    )
+                tasa = cotizacion.tasa
+                subtotal_neto = (subtotal_neto * tasa).quantize(Decimal('0.01'))
+                monto_iva = (monto_iva * tasa).quantize(Decimal('0.01'))
+            
+            # Línea DEBE: cuenta del producto (subtotal sin IVA)
             LineaAsiento.objects.create(
                 empresa=empresa,
                 asiento=asiento,
                 cuenta=producto.cuenta_contable,
-                debe=cantidad_pesos,
+                debe=subtotal_neto,
                 haber=Decimal('0'),
                 observacion=f"Compra {detalle.descripcion}",
                 item_contable=_generar_item_contable(proveedor),
                 compra_detalle=detalle,
             )
-            total_debe += cantidad_pesos
+            total_debe += subtotal_neto
+            
+            # Línea DEBE: IVA Crédito Fiscal (monto IVA)
+            if monto_iva > 0:
+                LineaAsiento.objects.create(
+                    empresa=empresa,
+                    asiento=asiento,
+                    cuenta=cuenta_iva,
+                    debe=monto_iva,
+                    haber=Decimal('0'),
+                    observacion=f"IVA {detalle.impuesto_porcentaje}% - {detalle.descripcion}",
+                    item_contable=_generar_item_contable(proveedor),
+                    compra_detalle=detalle,
+                )
+                total_iva += monto_iva
         
-        # Línea de HABER (proveedor)
+        total_debe_completo = total_debe + total_iva
+        
+        # Línea de HABER (proveedor) - total con IVA
         LineaAsiento.objects.create(
             empresa=empresa,
             asiento=asiento,
             cuenta=proveedor.cuenta_contable,
             debe=Decimal('0'),
-            haber=total_debe,
+            haber=total_debe_completo,
             observacion=f"Proveedor: {proveedor.nombre}",
             item_contable=_generar_item_contable(proveedor),
         )
-        total_haber = total_debe
         
         # Actualizar totales del asiento
-        asiento.total_debe = total_debe
-        asiento.total_haber = total_haber
+        asiento.total_debe = total_debe_completo
+        asiento.total_haber = total_debe_completo
         asiento.validate_balance()
         asiento.save()
         

@@ -10,14 +10,25 @@ class Proveedor(TenantModel):
     """Proveedores de productos y servicios."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nombre = models.CharField(max_length=255, db_index=True)
-    ruc_numero = models.CharField(max_length=50, db_index=True)
+    ruc_numero = models.CharField(max_length=50, db_index=True, help_text="RUC numérico")
+    ruc_alfanumerico = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        help_text="RUC alfanumérico para facturas de extranjeros (ej: EXT-12345)"
+    )
     pais = models.CharField(
         max_length=100, 
         help_text="País de origen del proveedor - REQUERIDO"
     )
     direccion = models.TextField(blank=True, default='')
     telefono = models.CharField(max_length=20, blank=True, default='')
-    email = models.EmailField(blank=True, default='')
+    email = models.EmailField(blank=True, default='', help_text="Email general")
+    email_set = models.EmailField(
+        blank=True,
+        default='',
+        help_text="Email SET (Sistema Electrónico de Tributación)"
+    )
     contacto_nombre = models.CharField(max_length=255, blank=True, default='')
     activo = models.BooleanField(default=True, db_index=True)
     notas = models.TextField(blank=True, default='')
@@ -29,6 +40,33 @@ class Proveedor(TenantModel):
         default='medio'
     )
     dias_credito = models.IntegerField(default=0, help_text="Días de plazo de crédito")
+    
+    # Facturación electrónica
+    emite_electronica = models.BooleanField(
+        default=False,
+        help_text="Si el proveedor emite factura electrónica"
+    )
+    timbrado_numero = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        help_text="Número de timbrado para factura"
+    )
+    timbrado_vencimiento = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Fecha de vencimiento del timbrado (no aplica si es electrónico)"
+    )
+    
+    # Contabilidad
+    cuenta_contable = models.ForeignKey(
+        'contabilidad.PlanCuentas',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='proveedores',
+        help_text="Cuenta contable obligatoria para asientos de compra"
+    )
     
     objects = TenantManager()
 
@@ -45,6 +83,11 @@ class Proveedor(TenantModel):
     def total_compras(self):
         """Total de compras realizadas a este proveedor."""
         return self.compra_set.filter(estado='recepcionada').count()
+    
+    @property
+    def item_contable(self):
+        """Item contable automático: P + RUC."""
+        return f"P{self.ruc_numero}"
 
 
 class CategoriaGasto(models.Model):
@@ -208,10 +251,16 @@ class CompraDetalle(TenantModel):
         return f"{self.descripcion} x {self.cantidad}"
 
     def calculate_totals(self):
-        """Calcular subtotal, impuestos y total."""
-        self.subtotal = self.cantidad * self.precio_unitario
-        self.impuestos = (self.subtotal * self.impuesto_porcentaje) / 100
-        self.total = self.subtotal + self.impuestos
+        """Calcular subtotal, impuestos y total. Precio incluye IVA."""
+        from decimal import Decimal
+        self.total = self.cantidad * self.precio_unitario
+        if self.impuesto_porcentaje and self.impuesto_porcentaje > 0:
+            divisor = Decimal('1') + (self.impuesto_porcentaje / Decimal('100'))
+            self.subtotal = (self.total / divisor).quantize(Decimal('0.01'))
+            self.impuestos = self.total - self.subtotal
+        else:
+            self.subtotal = self.total
+            self.impuestos = Decimal('0')
         return self.subtotal, self.impuestos, self.total
 
     def save(self, *args, **kwargs):

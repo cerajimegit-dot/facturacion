@@ -3,7 +3,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Usuario, Membership
+from .models import Usuario, Membership, ConfiguracionAcceso, MODULOS_DISPONIBLES, ACCESOS_DEFAULT
 from apps.empresas.models import Empresa
 
 
@@ -173,16 +173,27 @@ class CambiarPasswordSerializer(serializers.Serializer):
 
 class MembershipSerializer(serializers.ModelSerializer):
     usuario_nombre = serializers.CharField(source='usuario.get_full_name', read_only=True)
+    usuario_email = serializers.CharField(source='usuario.email', read_only=True)
     empresa_nombre = serializers.CharField(source='empresa.nombre', read_only=True)
+    usuario_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = Membership
         fields = [
             'id', 'usuario', 'empresa', 'rol', 'activo',
-            'usuario_nombre', 'empresa_nombre',
+            'usuario_nombre', 'usuario_email', 'usuario_detail', 'empresa_nombre',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'usuario_nombre', 'usuario_email', 'usuario_detail', 'empresa_nombre', 'created_at', 'updated_at']
+
+    def get_usuario_detail(self, obj):
+        u = obj.usuario
+        return {
+            'id': str(u.id),
+            'email': u.email,
+            'first_name': u.first_name,
+            'last_name': u.last_name,
+        }
 
 
 class InvitarUsuarioSerializer(serializers.Serializer):
@@ -241,3 +252,15 @@ class InvitarUsuarioSerializer(serializers.Serializer):
             membership.save()
         
         return user
+
+
+class ConfiguracionAccesoSerializer(serializers.ModelSerializer):
+    modulos_disponibles = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ConfiguracionAcceso
+        fields = ['id', 'empresa', 'rol', 'modulos_permitidos', 'modulos_disponibles', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'modulos_disponibles', 'created_at', 'updated_at']
+
+    def get_modulos_disponibles(self, obj):
+        return [{"key": k, "label": v} for k, v in MODULOS_DISPONIBLES]

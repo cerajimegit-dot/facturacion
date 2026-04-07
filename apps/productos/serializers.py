@@ -30,6 +30,7 @@ class PrecioListaSerializer(serializers.ModelSerializer):
 class ProductoSerializer(serializers.ModelSerializer):
     variantes = VarianteSerializer(many=True, read_only=True)
     categoria_nombre = serializers.CharField(source='categoria.nombre', read_only=True)
+    cuenta_contable_desc = serializers.CharField(source='cuenta_contable.descripcion', read_only=True, allow_null=True)
 
     class Meta:
         model = Producto
@@ -38,15 +39,17 @@ class ProductoSerializer(serializers.ModelSerializer):
             'categoria', 'categoria_nombre',
             'precio_unitario', 'costo', 'moneda',
             'impuesto_porcentaje', 'imagen_url', 'imagen', 'activo',
+            'cuenta_contable', 'cuenta_contable_desc',
             'variantes', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'cuenta_contable_desc']
 
 
 class ProductoUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating productos - makes SKU optional."""
     variantes = VarianteSerializer(many=True, read_only=True)
     categoria_nombre = serializers.CharField(source='categoria.nombre', read_only=True)
+    cuenta_contable_desc = serializers.CharField(source='cuenta_contable.descripcion', read_only=True, allow_null=True)
 
     class Meta:
         model = Producto
@@ -55,16 +58,21 @@ class ProductoUpdateSerializer(serializers.ModelSerializer):
             'categoria', 'categoria_nombre',
             'precio_unitario', 'costo', 'moneda',
             'impuesto_porcentaje', 'imagen_url', 'imagen', 'activo',
+            'cuenta_contable', 'cuenta_contable_desc',
             'variantes', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'sku', 'created_at', 'updated_at']  # SKU is read-only on updates
+        read_only_fields = ['id', 'sku', 'created_at', 'updated_at', 'cuenta_contable_desc']  # SKU is read-only on updates
 
 
 class ProductoListSerializer(serializers.ModelSerializer):
+    cuenta_contable_desc = serializers.CharField(source='cuenta_contable.descripcion', read_only=True, allow_null=True)
+    
     class Meta:
         model = Producto
         fields = [
             'id', 'sku', 'nombre', 'descripcion', 'tipo',
             'categoria', 'precio_unitario', 'costo', 'moneda',
             'impuesto_porcentaje', 'imagen_url', 'activo',
+            'cuenta_contable', 'cuenta_contable_desc',
         ]
+        read_only_fields = ['cuenta_contable_desc']

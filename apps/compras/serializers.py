@@ -6,25 +6,33 @@ from .models import Proveedor, Compra, CompraDetalle, Gasto, CategoriaGasto
 
 class ProveedorSerializer(serializers.ModelSerializer):
     total_compras = serializers.IntegerField(read_only=True)
+    cuenta_contable_desc = serializers.CharField(source='cuenta_contable.descripcion', read_only=True, allow_null=True)
 
     class Meta:
         model = Proveedor
         fields = [
-            'id', 'nombre', 'ruc_numero', 'pais', 'direccion',
-            'telefono', 'email', 'contacto_nombre', 'activo',
+            'id', 'nombre', 'ruc_numero', 'ruc_alfanumerico', 'pais', 'direccion',
+            'telefono', 'email', 'email_set', 'contacto_nombre', 'activo',
             'importancia', 'dias_credito', 'notas',
+            'emite_electronica', 'timbrado_numero', 'timbrado_vencimiento',
+            'cuenta_contable', 'cuenta_contable_desc',
             'total_compras', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'total_compras']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'total_compras', 'cuenta_contable_desc']
 
 
 class ProveedorListSerializer(serializers.ModelSerializer):
     """Serializer simplificado para listas."""
+    cuenta_contable_desc = serializers.CharField(source='cuenta_contable.descripcion', read_only=True, allow_null=True)
+    
     class Meta:
         model = Proveedor
         fields = [
-            'id', 'nombre', 'ruc_numero', 'pais', 'email', 'activo'
+            'id', 'nombre', 'ruc_numero', 'ruc_alfanumerico', 'pais', 'email', 'email_set',
+            'emite_electronica', 'timbrado_numero', 'activo',
+            'cuenta_contable', 'cuenta_contable_desc'
         ]
+        read_only_fields = ['cuenta_contable_desc']
 
 
 class CategoriaGastoSerializer(serializers.ModelSerializer):
@@ -176,20 +184,35 @@ class CompraSerializer(serializers.ModelSerializer):
             precio_unitario = Decimal(str(detalle_data.get('precio_unitario', 0)))
             impuesto_porcentaje = Decimal(str(detalle_data.get('impuesto_porcentaje', 0)))
             
-            # Calcular subtotal del item
-            subtotal_item = cantidad * precio_unitario
-            impuestos_item = subtotal_item * (impuesto_porcentaje / Decimal('100'))
+            # Precio incluye IVA: total = qty * price, neto = total / (1 + iva%)
+            total_item = cantidad * precio_unitario
+            if impuesto_porcentaje > 0:
+                divisor = Decimal('1') + (impuesto_porcentaje / Decimal('100'))
+                subtotal_item = (total_item / divisor).quantize(Decimal('0.01'))
+                impuestos_item = total_item - subtotal_item
+            else:
+                subtotal_item = total_item
+                impuestos_item = Decimal('0')
             
-            # Crear el detalle como SERVICIO (no requiere producto específico)
-            # IMPORTANTE: Pasar empresa para TenantModel
+            # Vincular producto si se envió producto_id
+            producto = None
+            producto_id = detalle_data.get('producto_id')
+            if producto_id:
+                from apps.productos.models import Producto
+                try:
+                    producto = Producto.objects.get(id=producto_id, empresa=empresa)
+                except Producto.DoesNotExist:
+                    pass
+            
             CompraDetalle.objects.create(
                 compra=compra,
-                empresa=compra.empresa,  # Pasar empresa ya que CompraDetalle hereda de TenantModel
+                empresa=compra.empresa,
+                producto=producto,
                 descripcion=detalle_data.get('descripcion'),
                 cantidad=cantidad,
                 precio_unitario=precio_unitario,
                 impuesto_porcentaje=impuesto_porcentaje,
-                es_servicio=True  # Por defecto son servicios/gastos generales
+                es_servicio=producto is None,
             )
             
             # Acumular totales

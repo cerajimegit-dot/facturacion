@@ -12,7 +12,7 @@ app_name = 'contabilidad'
 router = DefaultRouter()
 router.register(r'plan-cuentas', PlanCuentasViewSet, basename='plan-cuentas')
 router.register(r'asientos', AsientoViewSet, basename='asientos')
-router.register(r'cotizaciones', CotizacionDiariaViewSet, basename='cotizaciones')
+router.register(r'cotizaciones-diarias', CotizacionDiariaViewSet, basename='cotizaciones-diarias')
 router.register(r'saldos', SaldoCuentaViewSet, basename='saldos')
 
 urlpatterns = [

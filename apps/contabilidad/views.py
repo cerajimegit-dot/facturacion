@@ -1,11 +1,14 @@
 """Vistas para el módulo de contabilidad."""
+import re
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 from datetime import datetime, timedelta
 from decimal import Decimal
+import pandas as pd
 
 from apps.contabilidad.models import (
     PlanCuentas, Asiento, LineaAsiento, CotizacionDiaria, SaldoCuenta
@@ -79,6 +82,113 @@ class PlanCuentasViewSet(viewsets.ModelViewSet):
             })
         
         return Response(data)
+
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def importar(self, request):
+        """Importar plan de cuentas desde archivo Excel formato ANEXO 1."""
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response(
+                {'error': 'Se requiere un archivo Excel'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        allowed_ext = ('.xlsx', '.xls')
+        if not archivo.name.lower().endswith(allowed_ext):
+            return Response(
+                {'error': 'Solo se aceptan archivos .xlsx o .xls'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        empresa = request.user.empresa
+        code_pattern = re.compile(r'^\d[\d.]*$')
+
+        try:
+            df = pd.read_excel(archivo, header=None)
+        except Exception as e:
+            return Response(
+                {'error': f'No se pudo leer el archivo: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Parse accounts from ANEXO 1 format
+        accounts = []
+        for _, row in df.iterrows():
+            raw_code = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ''
+            raw_desc = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ''
+            if not raw_code or not raw_desc:
+                continue
+            if not code_pattern.match(raw_code):
+                continue
+            if 'xx' in raw_code:
+                continue
+            accounts.append((raw_code, raw_desc))
+
+        if not accounts:
+            return Response(
+                {'error': 'No se encontraron cuentas válidas en el archivo'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        preview = request.query_params.get('preview', 'false').lower() == 'true'
+        if preview:
+            preview_data = []
+            for cod, desc in accounts:
+                exists = PlanCuentas.objects.filter(empresa=empresa, codigo_cuenta=cod).exists()
+                preview_data.append({
+                    'codigo_cuenta': cod,
+                    'descripcion': desc,
+                    'existe': exists,
+                })
+            return Response({
+                'total': len(preview_data),
+                'nuevas': sum(1 for p in preview_data if not p['existe']),
+                'existentes': sum(1 for p in preview_data if p['existe']),
+                'cuentas': preview_data,
+            })
+
+        # Actual import
+        created = 0
+        updated = 0
+        for cod, desc in accounts:
+            parts = cod.split('.')
+            condicion = 'deudora' if cod.startswith('1') else 'acreedora'
+            clase = 'sintetica' if len(parts) <= 3 else 'analitica'
+
+            _, was_created = PlanCuentas.objects.update_or_create(
+                empresa=empresa,
+                codigo_cuenta=cod,
+                defaults={
+                    'descripcion': desc,
+                    'condicion': condicion,
+                    'clase': clase,
+                    'activa': True,
+                }
+            )
+            if was_created:
+                created += 1
+            else:
+                updated += 1
+
+        # Set parent relationships
+        parents_set = 0
+        for cod, _ in accounts:
+            parent_parts = cod.split('.')
+            if len(parent_parts) <= 1:
+                continue
+            parent_code = '.'.join(parent_parts[:-1])
+            parent = PlanCuentas.objects.filter(empresa=empresa, codigo_cuenta=parent_code).first()
+            if parent:
+                PlanCuentas.objects.filter(empresa=empresa, codigo_cuenta=cod).update(parent=parent)
+                parents_set += 1
+
+        total = PlanCuentas.objects.filter(empresa=empresa).count()
+        return Response({
+            'creadas': created,
+            'actualizadas': updated,
+            'parentescos': parents_set,
+            'total_en_bd': total,
+        })
 
 
 class AsientoViewSet(viewsets.ModelViewSet):
@@ -254,8 +364,15 @@ class CotizacionDiariaViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def hoy(self, request):
-        """Obtener cotización del día actual."""
-        hoy = timezone.now().date()
+        """Obtener cotización del día (o de una fecha específica)."""
+        fecha_param = request.query_params.get('fecha')
+        if fecha_param:
+            try:
+                hoy = datetime.strptime(fecha_param, '%Y-%m-%d').date()
+            except ValueError:
+                hoy = timezone.now().date()
+        else:
+            hoy = timezone.now().date()
         
         cotizacion = CotizacionDiaria.objects.filter(
             empresa=request.user.empresa,

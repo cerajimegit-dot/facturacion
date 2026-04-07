@@ -47,6 +47,17 @@ class Producto(TenantModel):
     impuesto_porcentaje = models.DecimalField(max_digits=5, decimal_places=2, default=10)
     imagen_url = models.URLField(blank=True, default='')
     imagen = models.ImageField(upload_to='productos/', blank=True, null=True)
+    
+    # Contabilidad
+    cuenta_contable = models.ForeignKey(
+        'contabilidad.PlanCuentas',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='productos',
+        help_text="Cuenta contable para contabilizar compras de este producto"
+    )
+    
     activo = models.BooleanField(default=True)
 
     objects = TenantManager()

@@ -50,6 +50,26 @@ def _handle(resp):
     return None, msg
 
 
+def _fetch_all(url, params=None):
+    """Fetch all pages from a paginated DRF endpoint."""
+    all_results = []
+    while url:
+        resp = requests.get(url, headers=_headers(), params=params)
+        data, err = _handle(resp)
+        if err:
+            return None, err
+        if isinstance(data, dict) and 'results' in data:
+            all_results.extend(data['results'])
+            url = data.get('next')
+            params = None  # next URL already includes query params
+        elif isinstance(data, list):
+            all_results.extend(data)
+            url = None
+        else:
+            return data, None
+    return all_results, None
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 def login(email: str, password: str):
@@ -85,6 +105,41 @@ def invitar_usuario(email: str, rol: str, first_name: str = "", last_name: str =
         "last_name": last_name,
     }
     resp = requests.post(f"{API_BASE}/auth/invitar-usuario/", json=data, headers=_headers())
+    return _handle(resp)
+
+
+def list_memberships(empresa_id: str):
+    """List memberships for an empresa."""
+    resp = requests.get(f"{API_BASE}/auth/memberships/", headers=_headers(), params={"empresa": empresa_id})
+    return _handle(resp)
+
+
+def update_membership(membership_id: str, data: dict):
+    """Update a membership (rol, activo)."""
+    resp = requests.patch(f"{API_BASE}/auth/memberships/{membership_id}/", json=data, headers=_headers())
+    return _handle(resp)
+
+
+def get_mis_permisos():
+    """Get allowed modules for current user."""
+    params = _empresa_param()
+    resp = requests.get(f"{API_BASE}/auth/mis-permisos/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def list_config_acceso(empresa_id: str):
+    """List access configurations per role for an empresa."""
+    resp = requests.get(f"{API_BASE}/auth/config-acceso/", headers=_headers(), params={"empresa": empresa_id})
+    return _handle(resp)
+
+
+def save_config_acceso(config_id: str = None, empresa_id: str = "", rol: str = "", modulos: list = None):
+    """Create or update access configuration for a role."""
+    data = {"empresa": empresa_id, "rol": rol, "modulos_permitidos": modulos or []}
+    if config_id:
+        resp = requests.put(f"{API_BASE}/auth/config-acceso/{config_id}/", json=data, headers=_headers())
+    else:
+        resp = requests.post(f"{API_BASE}/auth/config-acceso/", json=data, headers=_headers())
     return _handle(resp)
 
 
@@ -158,8 +213,7 @@ def list_productos(search: str = ""):
     params = _empresa_param()
     if search:
         params["search"] = search
-    resp = requests.get(f"{API_BASE}/productos/", headers=_headers(), params=params)
-    return _handle(resp)
+    return _fetch_all(f"{API_BASE}/productos/", params=params)
 
 
 def create_producto(data: dict):
@@ -483,8 +537,7 @@ def list_proveedores(search: str = ""):
     params = _empresa_param()
     if search:
         params["search"] = search
-    resp = requests.get(f"{API_BASE}/compras/proveedores/", headers=_headers(), params=params)
-    return _handle(resp)
+    return _fetch_all(f"{API_BASE}/compras/proveedores/", params=params)
 
 
 def create_proveedor(data: dict):
@@ -519,8 +572,7 @@ def list_compras(estado: str = "", search: str = ""):
         params["estado"] = estado
     if search:
         params["search"] = search
-    resp = requests.get(f"{API_BASE}/compras/compras/", headers=_headers(), params=params)
-    return _handle(resp)
+    return _fetch_all(f"{API_BASE}/compras/compras/", params=params)
 
 
 def create_compra(data: dict):
@@ -621,4 +673,107 @@ def resumen_categoria_gastos(mes: int, ano: int):
     params["mes"] = mes
     params["ano"] = ano
     resp = requests.get(f"{API_BASE}/compras/gastos/resumen_categoria/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+# ── Contabilidad ──────────────────────────────────────────────────────────────
+
+def list_plan_cuentas(condicion: str = "", search: str = ""):
+    """List accounting plan accounts."""
+    params = _empresa_param()
+    if condicion and condicion != "todos":
+        params["condicion"] = condicion
+    if search:
+        params["search"] = search
+    return _fetch_all(f"{API_BASE}/contabilidad/plan-cuentas/", params=params)
+
+
+def create_plan_cuentas(data: dict):
+    """Create a new accounting account."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/contabilidad/plan-cuentas/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def get_plan_cuentas(cuenta_id: str):
+    """Get accounting account details."""
+    resp = requests.get(f"{API_BASE}/contabilidad/plan-cuentas/{cuenta_id}/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def import_plan_cuentas(file_bytes, filename: str, preview: bool = False):
+    """Import accounting plan from Excel file."""
+    token = st.session_state.get("access_token")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    params = _empresa_param()
+    if preview:
+        params["preview"] = "true"
+    files = {"archivo": (filename, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    resp = requests.post(
+        f"{API_BASE}/contabilidad/plan-cuentas/importar/",
+        headers=headers, params=params, files=files
+    )
+    return _handle(resp)
+
+
+def list_asientos(estado: str = "", search: str = ""):
+    """List journal entries."""
+    params = _empresa_param()
+    if estado and estado != "todos":
+        params["estado"] = estado
+    if search:
+        params["search"] = search
+    resp = requests.get(f"{API_BASE}/contabilidad/asientos/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def create_asiento(data: dict):
+    """Create a new journal entry."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/contabilidad/asientos/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def get_asiento(asiento_id: str):
+    """Get journal entry details."""
+    resp = requests.get(f"{API_BASE}/contabilidad/asientos/{asiento_id}/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def registrar_asiento(asiento_id: str):
+    """Register a journal entry."""
+    resp = requests.post(f"{API_BASE}/contabilidad/asientos/{asiento_id}/registrar/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def reversar_asiento(asiento_id: str):
+    """Reverse a journal entry."""
+    resp = requests.post(f"{API_BASE}/contabilidad/asientos/{asiento_id}/reversar/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def list_cotizaciones_diarias(moneda: str = "", search: str = ""):
+    """List daily exchange rates."""
+    params = _empresa_param()
+    if moneda:
+        params["moneda"] = moneda
+    if search:
+        params["search"] = search
+    resp = requests.get(f"{API_BASE}/contabilidad/cotizaciones-diarias/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def get_cotizacion_del_dia(fecha: str = ""):
+    """Get exchange rate for a specific date (defaults to today)."""
+    params = _empresa_param()
+    if fecha:
+        params["fecha"] = fecha
+    resp = requests.get(f"{API_BASE}/contabilidad/cotizaciones-diarias/hoy/", headers=_headers(), params=params)
+    return _handle(resp)
+
+
+def create_cotizacion_diaria(data: dict):
+    """Create a new daily exchange rate."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/contabilidad/cotizaciones-diarias/", json=data, headers=_headers(), params=_empresa_param())
     return _handle(resp)

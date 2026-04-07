@@ -1,10 +1,11 @@
 """Views for authentication and user management."""
 from rest_framework import generics, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from .models import Usuario, Membership
+from .models import Usuario, Membership, ConfiguracionAcceso, MODULOS_DISPONIBLES, ACCESOS_DEFAULT
 from .serializers import (
     EmailTokenObtainSerializer,
     RegistroSerializer,
@@ -12,6 +13,7 @@ from .serializers import (
     CambiarPasswordSerializer,
     MembershipSerializer,
     InvitarUsuarioSerializer,
+    ConfiguracionAccesoSerializer,
 )
 
 
@@ -110,3 +112,59 @@ class InvitarUsuarioView(APIView):
             },
             status=status.HTTP_201_CREATED
         )
+
+
+class ConfiguracionAccesoViewSet(viewsets.ModelViewSet):
+    """CRUD de configuración de acceso por rol."""
+    serializer_class = ConfiguracionAccesoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = ConfiguracionAcceso.objects.all()
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            qs = qs.filter(empresa_id=empresa_id)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        if request.user.rol != 'admin':
+            return Response({'error': 'Solo admins'}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if request.user.rol != 'admin':
+            return Response({'error': 'Solo admins'}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+
+class MisPermisosView(APIView):
+    """Obtener los módulos permitidos para el usuario actual."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        empresa_id = request.query_params.get('empresa')
+        if not empresa_id and user.empresa:
+            empresa_id = str(user.empresa_id)
+
+        rol = user.rol
+        if empresa_id:
+            membership = Membership.objects.filter(
+                usuario=user, empresa_id=empresa_id, activo=True
+            ).first()
+            if membership:
+                rol = membership.rol
+
+        if rol == 'admin':
+            modulos = [m[0] for m in MODULOS_DISPONIBLES]
+        else:
+            modulos = ConfiguracionAcceso.get_modulos_permitidos(
+                empresa_id, rol
+            ) if empresa_id else ACCESOS_DEFAULT.get(rol, [])
+
+        return Response({
+            'rol': rol,
+            'modulos_permitidos': modulos,
+            'modulos_disponibles': [{"key": k, "label": v} for k, v in MODULOS_DISPONIBLES],
+            'defaults': ACCESOS_DEFAULT,
+        })

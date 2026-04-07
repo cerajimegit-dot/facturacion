@@ -61,7 +61,7 @@ def render():
 
                 # Tabla de compras
                 df = pd.DataFrame(compras)
-                display_cols = [c for c in ["numero", "proveedor_nombre", "fecha", "estado", "total", "moneda"] 
+                display_cols = [c for c in ["numero", "proveedor_nombre", "fecha", "estado", "subtotal", "impuestos_total", "total", "moneda"] 
                                if c in df.columns]
                 st.dataframe(df[display_cols] if display_cols else df, use_container_width=True, hide_index=True)
 
@@ -143,7 +143,7 @@ def render():
             col1, col2 = st.columns(2)
 
             # Proveedores
-            prov_data, err = api.list_proveedores() if not err else ([], None)
+            prov_data, prov_err = api.list_proveedores()
             proveedores = results(prov_data) if prov_data else []
             proveedor_options = {f"{p.get('nombre', '')} ({p.get('pais', '')}": p for p in proveedores}
 
@@ -160,7 +160,21 @@ def render():
                 
                 st.session_state.compra_moneda = st.selectbox("Moneda", ["PYG", "USD"], index=0 if st.session_state.compra_moneda == "PYG" else 1)
                 if st.session_state.compra_moneda == "USD":
-                    st.session_state.compra_cotizacion = st.number_input("Cotización USD/PYG *", min_value=0.0, value=st.session_state.compra_cotizacion, step=100.0)
+                    # Auto-fetch cotización del día
+                    cot_data, cot_err = api.get_cotizacion_del_dia(
+                        fecha=st.session_state.compra_fecha.isoformat()
+                    )
+                    if cot_err or not cot_data:
+                        st.session_state.compra_cotizacion = 0.0
+                        st.error("⚠️ No hay cotización USD/PYG cargada para esta fecha. Cargue la cotización en Contabilidad → Cotizaciones antes de registrar la compra.")
+                        st.session_state._compra_sin_cotizacion = True
+                    else:
+                        tasa = float(cot_data.get("tasa", 0))
+                        st.session_state.compra_cotizacion = tasa
+                        st.session_state._compra_sin_cotizacion = False
+                        st.success(f"💱 Cotización del día: 1 USD = {tasa:,.0f} PYG")
+                else:
+                    st.session_state._compra_sin_cotizacion = False
 
             st.write("**Ítems de la Compra** (Productos o Servicios)")
             
@@ -214,6 +228,7 @@ def render():
                             st.session_state.item_desc_temp = producto.get('nombre', '')
                             st.session_state.item_precio_temp = float(producto.get('precio_unitario', 0))
                             st.session_state.item_iva_temp = float(producto.get('impuesto_porcentaje', 10))
+                            st.session_state.item_cuenta_desc_temp = producto.get('cuenta_contable_desc', '')
                             
                             # Mostrar resumen del producto
                             col_a, col_b, col_c = st.columns(3)
@@ -223,6 +238,13 @@ def render():
                                 st.caption(f"Tipo: {producto.get('tipo', 'producto')}")
                             with col_c:
                                 st.caption(f"Precio: {fmt(float(producto.get('precio_unitario', 0)), '₲')}")
+                            
+                            # Mostrar cuenta contable del producto
+                            cuenta_desc = producto.get('cuenta_contable_desc')
+                            if cuenta_desc:
+                                st.caption(f"📒 Cuenta contable: {cuenta_desc}")
+                            else:
+                                st.warning("⚠️ Este producto no tiene cuenta contable asignada. Asígnala en Productos para que el asiento contable se genere correctamente.")
                     else:
                         st.warning(f"❌ No se encontraron productos con '{search_term}'")
                         if st.button("➕ Crear nuevo producto", key="btn_crear_prod_from_search"):
@@ -322,7 +344,8 @@ def render():
                     key="item_iva_input"
                 )
             with col3:
-                total_item = float(st.session_state.item_cant_temp) * float(st.session_state.item_precio_temp) * (1 + float(st.session_state.item_iva_temp) / 100)
+                # Precio incluye IVA
+                total_item = float(st.session_state.item_cant_temp) * float(st.session_state.item_precio_temp)
                 st.metric("Total Item", fmt(total_item, "₲"))
 
             # Botón agregar
@@ -333,7 +356,8 @@ def render():
                         "cantidad": st.session_state.item_cant_temp,
                         "precio_unitario": st.session_state.item_precio_temp,
                         "impuesto_porcentaje": st.session_state.item_iva_temp,
-                        "producto_id": st.session_state.item_producto_id
+                        "producto_id": st.session_state.item_producto_id,
+                        "cuenta_contable_desc": st.session_state.get("item_cuenta_desc_temp", ""),
                     })
                     # Limpiar campos después de agregar
                     st.session_state.item_desc_temp = ""
@@ -341,6 +365,7 @@ def render():
                     st.session_state.item_precio_temp = 0.0
                     st.session_state.item_iva_temp = 10.0
                     st.session_state.item_producto_id = None
+                    st.session_state.item_cuenta_desc_temp = ""
                     notify_success(f"✅ Item agregado exitosamente")
                     st.rerun()
                 else:
@@ -351,55 +376,71 @@ def render():
                 st.write("**Items Agregados:**")
                 
                 # Tabla de items
-                col1, col2, col3, col4, col5 = st.columns([2, 1, 1.5, 1, 0.5])
+                col1, col2, col3, col4, col5, col6 = st.columns([2, 0.7, 1.2, 1, 1, 0.5])
                 with col1:
                     st.write("**Descripción**")
                 with col2:
                     st.write("**Cant.**")
                 with col3:
-                    st.write("**Precio Unit.**")
+                    st.write("**P.Unit (c/IVA)**")
                 with col4:
-                    st.write("**Total**")
+                    st.write("**Neto**")
                 with col5:
+                    st.write("**IVA**")
+                with col6:
                     st.write("**Acción**")
                 
                 # Items
                 for idx, item in enumerate(st.session_state.compra_items):
-                    col1, col2, col3, col4, col5 = st.columns([2, 1, 1.5, 1, 0.5])
+                    col1, col2, col3, col4, col5, col6 = st.columns([2, 0.7, 1.2, 1, 1, 0.5])
                     
                     qty = float(item.get('cantidad', 0))
                     price = float(item.get('precio_unitario', 0))
                     iva_pct = float(item.get('impuesto_porcentaje', 0))
                     
-                    subtotal_item = qty * price
-                    iva_item = subtotal_item * (iva_pct / 100)
-                    total_item = subtotal_item + iva_item
+                    # Precio incluye IVA
+                    total_item = qty * price
+                    if iva_pct > 0:
+                        neto_item = total_item / (1 + iva_pct / 100)
+                        iva_item = total_item - neto_item
+                    else:
+                        neto_item = total_item
+                        iva_item = 0
                     
                     with col1:
-                        st.write(item.get('descripcion'))
+                        desc = item.get('descripcion', '')
+                        cuenta = item.get('cuenta_contable_desc', '')
+                        st.write(desc)
+                        if cuenta:
+                            st.caption(f"📒 {cuenta}")
                     with col2:
                         st.write(f"{qty:.0f}")
                     with col3:
                         st.write(fmt(price, "₲"))
                     with col4:
-                        st.write(fmt(total_item, "₲"))
+                        st.write(fmt(neto_item, "₲"))
                     with col5:
+                        st.write(f"{fmt(iva_item, '₲')} ({iva_pct:.0f}%)")
+                    with col6:
                         if st.button("❌", key=f"del_item_{idx}", use_container_width=True):
                             st.session_state.compra_items.pop(idx)
                             st.rerun()
                 
                 st.divider()
                 
-                # Resumen totales
-                subtotal_compra = sum(
+                # Resumen totales (precio incluye IVA)
+                total_compra = sum(
                     float(item.get('cantidad', 0)) * float(item.get('precio_unitario', 0))
                     for item in st.session_state.compra_items
                 )
                 impuestos_compra = sum(
-                    float(item.get('cantidad', 0)) * float(item.get('precio_unitario', 0)) * (float(item.get('impuesto_porcentaje', 0)) / 100)
+                    (lambda t, p: t - t / (1 + p / 100) if p > 0 else 0)(
+                        float(item.get('cantidad', 0)) * float(item.get('precio_unitario', 0)),
+                        float(item.get('impuesto_porcentaje', 0))
+                    )
                     for item in st.session_state.compra_items
                 )
-                total_compra = subtotal_compra + impuestos_compra
+                subtotal_compra = total_compra - impuestos_compra
                 
                 col1, col2, col3 = st.columns([2, 1, 1.5])
                 with col1:
@@ -425,79 +466,185 @@ def render():
                 with col3:
                     st.metric("", fmt(total_compra, "₲"), label_visibility="collapsed")
 
+                # ── Vista Previa del Asiento Contable ──────────────────────
+                st.divider()
+                st.subheader("📋 Vista Previa del Asiento Contable")
+
+                # Obtener datos del proveedor seleccionado
+                prov_selected = proveedor_options.get(st.session_state.compra_proveedor, {})
+                prov_cuenta_desc = prov_selected.get('cuenta_contable_desc', 'Sin cuenta contable')
+                prov_nombre = prov_selected.get('nombre', '')
+
+                # Cotización para conversión USD → PYG
+                es_usd = st.session_state.compra_moneda == "USD"
+                tasa_cambio = float(st.session_state.compra_cotizacion) if es_usd else 1.0
+
+                if es_usd and tasa_cambio > 0:
+                    st.info(f"💱 Asiento en Guaraníes (cotización: 1 USD = {tasa_cambio:,.0f} PYG)")
+                elif es_usd:
+                    st.warning("⚠️ Sin cotización — los montos se muestran en USD sin convertir")
+                    tasa_cambio = 1.0
+
+                def _solo_desc(cuenta):
+                    """Devuelve solo la descripción sin el código contable."""
+                    if cuenta and " - " in cuenta:
+                        return cuenta.split(" - ", 1)[1]
+                    return cuenta
+
+                lineas_asiento = []
+
+                for item in st.session_state.compra_items:
+                    qty = float(item.get('cantidad', 0))
+                    price = float(item.get('precio_unitario', 0))
+                    iva_pct = float(item.get('impuesto_porcentaje', 0))
+
+                    # Precio incluye IVA
+                    total_linea = qty * price
+                    if iva_pct > 0:
+                        subtotal_item = total_linea / (1 + iva_pct / 100)
+                        iva_item = total_linea - subtotal_item
+                    else:
+                        subtotal_item = total_linea
+                        iva_item = 0
+
+                    # Convertir a PYG
+                    subtotal_item *= tasa_cambio
+                    iva_item *= tasa_cambio
+
+                    cuenta_prod = _solo_desc(item.get('cuenta_contable_desc', '')) or 'Sin cuenta contable'
+
+                    # Línea DEBE: cuenta del producto (neto sin IVA)
+                    lineas_asiento.append({
+                        "Cuenta": cuenta_prod,
+                        "Descripción": f"Compra {item.get('descripcion', '')}",
+                        "Debe": subtotal_item,
+                        "Haber": 0,
+                    })
+
+                    # Línea DEBE: IVA Crédito Fiscal
+                    if iva_item > 0:
+                        lineas_asiento.append({
+                            "Cuenta": "IVA CRÉDITO FISCAL",
+                            "Descripción": f"IVA {iva_pct:.0f}% - {item.get('descripcion', '')}",
+                            "Debe": iva_item,
+                            "Haber": 0,
+                        })
+
+                total_compra_pyg = total_compra * tasa_cambio
+
+                # Línea HABER: cuenta del proveedor (total con IVA)
+                lineas_asiento.append({
+                    "Cuenta": _solo_desc(prov_cuenta_desc) or 'Sin cuenta contable',
+                    "Descripción": f"Proveedor: {prov_nombre}",
+                    "Debe": 0,
+                    "Haber": total_compra_pyg,
+                })
+
+                df_asiento = pd.DataFrame(lineas_asiento)
+                df_asiento["Debe"] = df_asiento["Debe"].apply(lambda x: fmt(x, "₲") if x > 0 else "")
+                df_asiento["Haber"] = df_asiento["Haber"].apply(lambda x: fmt(x, "₲") if x > 0 else "")
+
+                st.dataframe(df_asiento, use_container_width=True, hide_index=True)
+
+                # Validación de balance
+                total_debe_preview = total_compra_pyg
+
+                col_d, col_h = st.columns(2)
+                with col_d:
+                    st.write(f"**Total Debe:** {fmt(total_debe_preview, '₲')}")
+                with col_h:
+                    st.write(f"**Total Haber:** {fmt(total_compra_pyg, '₲')}")
+
+                if abs(total_debe_preview - total_compra_pyg) < 0.01:
+                    st.success("✅ Asiento balanceado")
+                else:
+                    st.error("❌ Asiento desbalanceado")
+
             # Botón guardar
             if st.button("💾 Guardar Compra", type="primary", use_container_width=True, key="btn_guardar_compra"):
-                if not st.session_state.compra_numero or not st.session_state.compra_proveedor or not st.session_state.compra_almacen or not st.session_state.compra_items:
-                    notify_error("Completa todos los campos y agrega al menos un item.")
+                if st.session_state.get("_compra_sin_cotizacion"):
+                    notify_error("No se puede registrar: no hay cotización USD/PYG para la fecha seleccionada. Cargue la cotización en Contabilidad → Cotizaciones.")
                 else:
-                    # Re-obtener opciones para validar
-                    prov_data_check, _ = api.list_proveedores()
-                    proveedores_check = results(prov_data_check) if prov_data_check else []
-                    proveedor_options_check = {f"{p.get('nombre', '')} ({p.get('pais', '')}": p for p in proveedores_check}
-                    
-                    almacenes_data_check, _ = api.list_almacenes()
-                    almacenes_check = results(almacenes_data_check) if almacenes_data_check else []
-                    almacen_options_check = {f"{a.get('codigo', '')} - {a.get('nombre', '')}": a for a in almacenes_check}
-                    
-                    if st.session_state.compra_proveedor not in proveedor_options_check:
-                        notify_error("Proveedor inválido. Recarga la página.")
-                    elif st.session_state.compra_almacen not in almacen_options_check:
-                        notify_error("Almacén inválido. Recarga la página.")
+                    campos_faltantes = []
+                    if not st.session_state.compra_numero:
+                        campos_faltantes.append("Número de Factura")
+                    if not st.session_state.compra_proveedor:
+                        campos_faltantes.append("Proveedor")
+                    if not st.session_state.compra_almacen:
+                        campos_faltantes.append("Almacén")
+                    if not st.session_state.compra_items:
+                        campos_faltantes.append("al menos un ítem")
+                    if campos_faltantes:
+                        notify_error(f"Falta completar: {', '.join(campos_faltantes)}")
                     else:
-                        proveedor = proveedor_options_check[st.session_state.compra_proveedor]
-                        almacen = almacen_options_check[st.session_state.compra_almacen]
-
-                        payload = {
-                            "numero": st.session_state.compra_numero,
-                            "fecha": st.session_state.compra_fecha.isoformat(),
-                            "proveedor": proveedor["id"],
-                            "almacen": almacen["id"],
-                            "moneda": st.session_state.compra_moneda,
-                            "estado": "pendiente",
-                            "detalles": st.session_state.compra_items
-                        }
-
-                        if st.session_state.compra_moneda == "USD":
-                            payload["cotizacion_usd"] = str(st.session_state.compra_cotizacion)
-
-                        result, err = api.create_compra(payload)
-                        if err:
-                            # Mostrar errores detallados
-                            error_msg = str(err)
-                            if 'detalles' in error_msg.lower():
-                                notify_error("❌ Error en los items: Verifica que cada item tenga descripción, cantidad y precio válidos.")
-                            elif 'cotizacion' in error_msg.lower():
-                                notify_error("❌ Error: La cotización USD es obligatoria")
-                            else:
-                                notify_error(f"❌ No se pudo crear la compra: {error_msg}")
-                            st.warning(f"📋 Detalles técnicos: {error_msg}")
+                        # Re-obtener opciones para validar
+                        prov_data_check, _ = api.list_proveedores()
+                        proveedores_check = results(prov_data_check) if prov_data_check else []
+                        proveedor_options_check = {f"{p.get('nombre', '')} ({p.get('pais', '')}": p for p in proveedores_check}
+                        
+                        almacenes_data_check, _ = api.list_almacenes()
+                        almacenes_check = results(almacenes_data_check) if almacenes_data_check else []
+                        almacen_options_check = {f"{a.get('codigo', '')} - {a.get('nombre', '')}": a for a in almacenes_check}
+                        
+                        if st.session_state.compra_proveedor not in proveedor_options_check:
+                            notify_error("Proveedor inválido. Recarga la página.")
+                        elif st.session_state.compra_almacen not in almacen_options_check:
+                            notify_error("Almacén inválido. Recarga la página.")
                         else:
-                            # Verificar que la compra se creó correctamente
-                            compra_id = result.get('id')
-                            if not compra_id:
-                                notify_error("❌ La compra se creó pero sin ID. Por favor recarga la página.")
-                            elif result.get('total') == 0:
-                                notify_error("❌ ⚠️ ALERTA: La compra se creó pero sin detalles. Total = 0. Por favor revisa.")
+                            proveedor = proveedor_options_check[st.session_state.compra_proveedor]
+                            almacen = almacen_options_check[st.session_state.compra_almacen]
+
+                            payload = {
+                                "numero": st.session_state.compra_numero,
+                                "fecha": st.session_state.compra_fecha.isoformat(),
+                                "proveedor": proveedor["id"],
+                                "almacen": almacen["id"],
+                                "moneda": st.session_state.compra_moneda,
+                                "estado": "pendiente",
+                                "detalles": st.session_state.compra_items
+                            }
+
+                            if st.session_state.compra_moneda == "USD":
+                                payload["cotizacion_usd"] = str(st.session_state.compra_cotizacion)
+
+                            result, err = api.create_compra(payload)
+                            if err:
+                                # Mostrar errores detallados
+                                error_msg = str(err)
+                                if 'detalles' in error_msg.lower():
+                                    notify_error("❌ Error en los items: Verifica que cada item tenga descripción, cantidad y precio válidos.")
+                                elif 'cotizacion' in error_msg.lower():
+                                    notify_error("❌ Error: La cotización USD es obligatoria")
+                                else:
+                                    notify_error(f"❌ No se pudo crear la compra: {error_msg}")
+                                st.warning(f"📋 Detalles técnicos: {error_msg}")
                             else:
-                                # Todo bien
-                                total_items = len(st.session_state.compra_items)
-                                total_cantidad = sum(float(item.get('cantidad', 0)) for item in st.session_state.compra_items)
+                                # Verificar que la compra se creó correctamente
+                                compra_id = result.get('id')
+                                if not compra_id:
+                                    notify_error("❌ La compra se creó pero sin ID. Por favor recarga la página.")
+                                elif result.get('total') == 0:
+                                    notify_error("❌ ⚠️ ALERTA: La compra se creó pero sin detalles. Total = 0. Por favor revisa.")
+                                else:
+                                    # Todo bien
+                                    total_items = len(st.session_state.compra_items)
+                                    total_cantidad = sum(float(item.get('cantidad', 0)) for item in st.session_state.compra_items)
                                 
-                                notify_success(f"""
+                                    notify_success(f"""
 ✅ **Compra registrada correctamente**
 - Número: {st.session_state.compra_numero}
 - Items: {total_items}
 - Cantidad total: {total_cantidad} unidades
 - Total: {fmt(result.get('total', 0), '₲')}
 - Estado: {result.get('estado')}
-                                """)
+                                    """)
                                 
-                                st.session_state.compra_items = []
-                                st.session_state.show_new_compra = False
-                                st.session_state.compra_numero = ""
-                                st.session_state.compra_proveedor = ""
-                                st.session_state.compra_almacen = ""
-                                st.rerun()
+                                    st.session_state.compra_items = []
+                                    st.session_state.show_new_compra = False
+                                    st.session_state.compra_numero = ""
+                                    st.session_state.compra_proveedor = ""
+                                    st.session_state.compra_almacen = ""
+                                    st.rerun()
 
     # ── PROVEEDORES ───────────────────────────────────────────────────────────
     with tab_proveedores:
@@ -527,30 +674,158 @@ def render():
                 st.info("📭 No hay proveedores registrados.")
             else:
                 df = pd.DataFrame(proveedores)
-                display_cols = [c for c in ["nombre", "ruc_numero", "pais", "email", "telefono", "activo"] 
+                display_cols = [c for c in ["nombre", "ruc_numero", "ruc_alfanumerico", "pais", "email", "email_set", "emite_electronica", "timbrado_numero", "activo"] 
                                if c in df.columns]
                 st.dataframe(df[display_cols] if display_cols else df, use_container_width=True, hide_index=True)
 
                 # Expandibles
                 for prov in proveedores:
                     with st.expander(f"**{prov.get('nombre', '')}** ({prov.get('pais', '')}) — RUC: {prov.get('ruc_numero', '')}"):
+                        st.write("**Información General**")
                         col1, col2 = st.columns(2)
                         with col1:
                             st.write(f"**Email:** {prov.get('email', '-')}")
+                            st.write(f"**Email SET:** {prov.get('email_set', '-')}")
                             st.write(f"**Teléfono:** {prov.get('telefono', '-')}")
                             st.write(f"**Contacto:** {prov.get('contacto_nombre', '-')}")
                         with col2:
                             st.write(f"**Importancia:** {prov.get('importancia', '-').upper()}")
                             st.write(f"**Días Crédito:** {prov.get('dias_credito', 0)} días")
                             st.write(f"**Total Compras:** {prov.get('total_compras', 0)}")
+                        
+                        st.divider()
+                        st.write("**Información Tributaria**")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**RUC Alfanumérico:** {prov.get('ruc_alfanumerico', '-')}")
+                            st.write(f"**Emite Electrónica:** {'✅ Sí' if prov.get('emite_electronica') else '❌ No'}")
+                        with col2:
+                            st.write(f"**Timbrado Número:** {prov.get('timbrado_numero', '-')}")
+                            st.write(f"**Timbrado Vencimiento:** {prov.get('timbrado_vencimiento', '-')}")
+                        
+                        if prov.get('cuenta_contable') or prov.get('cuenta_contable_desc'):
+                            st.divider()
+                            st.write("**Información Contable**")
+                            st.write(f"**Cuenta Contable:** {prov.get('cuenta_contable_desc', prov.get('cuenta_contable', '-'))}")
 
-                        if st.button("🗑️ Eliminar", key=f"del_prov_{prov['id']}"):
-                            ok, err = api.delete_proveedor(prov["id"])
-                            if ok:
-                                notify_success(f"Proveedor **{prov.get('nombre')}** eliminado.")
-                                st.rerun()
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("✏️ Editar", key=f"btn_edit_prov_{prov['id']}", use_container_width=True):
+                                st.session_state[f"edit_prov_{prov['id']}"] = True
+                        with col2:
+                            if st.button("🗑️ Eliminar", key=f"btn_del_prov_{prov['id']}", use_container_width=True):
+                                ok, err = api.delete_proveedor(prov["id"])
+                                if ok:
+                                    notify_success(f"Proveedor **{prov.get('nombre')}** eliminado.")
+                                    st.rerun()
+                                else:
+                                    notify_error("Error al eliminar proveedor", {"details": str(err)})
+
+        # ── Edit Provider Form ──────────────────────────────────────────────
+        for prov in proveedores:
+            if st.session_state.get(f"edit_prov_{prov['id']}"):
+                st.divider()
+                st.subheader(f"✏️ Editar Proveedor: {prov.get('nombre', '')}")
+                
+                with st.form(f"edit_prov_form_{prov['id']}"):
+                    st.write("### Información General")
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        nombre = st.text_input("Nombre *", value=prov.get("nombre", ""), placeholder="Nombre de la empresa")
+                        ruc = st.text_input("RUC *", value=prov.get("ruc_numero", ""), placeholder="80123456-7")
+                        ruc_alfa = st.text_input("RUC Alfanumérico", value=prov.get("ruc_alfanumerico", ""), placeholder="Ej: XX123456789ABC")
+                        pais = st.text_input("País *", value=prov.get("pais", ""), placeholder="Paraguay")
+
+                    with col2:
+                        email = st.text_input("Email", value=prov.get("email", ""), placeholder="contacto@empresa.com")
+                        email_set = st.text_input("Email SET", value=prov.get("email_set", ""), placeholder="set@empresa.com")
+                        telefono = st.text_input("Teléfono", value=prov.get("telefono", ""), placeholder="+595 981 234567")
+                        contacto = st.text_input("Contacto", value=prov.get("contacto_nombre", ""), placeholder="Nombre de contacto")
+
+                    direccion = st.text_area("Dirección", value=prov.get("direccion", ""), placeholder="Calle, número, ciudad")
+
+                    st.write("### Información Comercial")
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        importancia = st.selectbox("Importancia", ["bajo", "medio", "alto"], index=["bajo", "medio", "alto"].index(prov.get("importancia", "bajo")))
+                    with col2:
+                        dias_credito = st.number_input("Días de Crédito", min_value=0, value=prov.get("dias_credito", 0), step=1)
+                    with col3:
+                        emite_elec = st.checkbox("Emite Electrónica", value=prov.get("emite_electronica", False))
+                    with col4:
+                        pass
+
+                    st.write("### Información Tributaria")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        timbrado_num = st.text_input("Número Timbrado", value=prov.get("timbrado_numero", "") or "", placeholder="Ej: 12345678")
+                    with col2:
+                        timbrado_venc_str = prov.get("timbrado_vencimiento")
+                        timbrado_venc_value = None
+                        if timbrado_venc_str:
+                            try:
+                                timbrado_venc_value = datetime.datetime.strptime(timbrado_venc_str, "%Y-%m-%d").date()
+                            except:
+                                timbrado_venc_value = None
+                        timbrado_venc = st.date_input("Vencimiento Timbrado", value=timbrado_venc_value)
+
+                    st.write("### Información Contable")
+                    cuentas_data, _ = api.list_plan_cuentas()
+                    if cuentas_data and "results" in cuentas_data:
+                        cuentas = cuentas_data["results"]
+                        cuenta_options = {f"{c.get('codigo_cuenta')} - {c.get('descripcion')}": c.get('id') for c in cuentas}
+                        current_cuenta_id = prov.get('cuenta_contable', '')
+                        # Find the option that matches the current ID
+                        current_option = None
+                        for opt, cuenta_id in cuenta_options.items():
+                            if cuenta_id == current_cuenta_id:
+                                current_option = opt
+                                break
+                        cuenta_index = list(cuenta_options.keys()).index(current_option) if current_option else 0
+                        cuenta_contable_id = st.selectbox("Cuenta Contable para Compras", options=list(cuenta_options.keys()) if cuenta_options else ["Sin cuentas disponibles"], index=cuenta_index, key=f"edit_prov_cuenta_{prov['id']}")
+                        cuenta_contable_value = cuenta_options.get(cuenta_contable_id) if cuenta_contable_id in cuenta_options else None
+                    else:
+                        st.warning("No hay cuentas contables disponibles. Crea el plan de cuentas primero.")
+                        cuenta_contable_value = prov.get('cuenta_contable')
+
+                    col_submit, col_cancel = st.columns(2)
+                    with col_submit:
+                        if st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True):
+                            if not nombre or not ruc or not pais:
+                                notify_error("Nombre, RUC y País son obligatorios.")
                             else:
-                                notify_error("Error al eliminar proveedor", {"details": str(err)})
+                                payload = {
+                                    "nombre": nombre,
+                                    "ruc_numero": ruc,
+                                    "ruc_alfanumerico": ruc_alfa,
+                                    "pais": pais,
+                                    "email": email,
+                                    "email_set": email_set,
+                                    "telefono": telefono,
+                                    "contacto_nombre": contacto,
+                                    "direccion": direccion,
+                                    "importancia": importancia,
+                                    "dias_credito": dias_credito,
+                                    "emite_electronica": emite_elec,
+                                    "timbrado_numero": timbrado_num,
+                                    "timbrado_vencimiento": str(timbrado_venc) if timbrado_venc else None
+                                }
+                                
+                                if cuenta_contable_value:
+                                    payload["cuenta_contable"] = cuenta_contable_value
+
+                                result, err = api.update_proveedor(prov["id"], payload)
+                                if err:
+                                    notify_error("No se pudo actualizar el proveedor", {"details": str(err)})
+                                else:
+                                    notify_success(f"✅ Proveedor **{nombre}** actualizado correctamente.")
+                                    st.session_state[f"edit_prov_{prov['id']}"] = False
+                                    st.rerun()
+                    with col_cancel:
+                        if st.form_submit_button("❌ Cancelar", use_container_width=True):
+                            st.session_state[f"edit_prov_{prov['id']}"] = False
+                            st.rerun()
 
         if st.button("➕ Nuevo Proveedor", type="primary", use_container_width=True, key="new_prov_btn"):
             st.session_state.show_new_prov = True
@@ -560,25 +835,51 @@ def render():
             st.subheader("📝 Nuevo Proveedor")
 
             with st.form("new_proveedor"):
+                st.write("### Información General")
                 col1, col2 = st.columns(2)
 
                 with col1:
                     nombre = st.text_input("Nombre *", placeholder="Nombre de la empresa")
                     ruc = st.text_input("RUC *", placeholder="80123456-7")
+                    ruc_alfa = st.text_input("RUC Alfanumérico", placeholder="Ej: XX123456789ABC")
                     pais = st.text_input("País *", placeholder="Paraguay")
 
                 with col2:
                     email = st.text_input("Email", placeholder="contacto@empresa.com")
+                    email_set = st.text_input("Email SET", placeholder="set@empresa.com")
                     telefono = st.text_input("Teléfono", placeholder="+595 981 234567")
                     contacto = st.text_input("Contacto", placeholder="Nombre de contacto")
 
                 direccion = st.text_area("Dirección", placeholder="Calle, número, ciudad")
 
-                col1, col2 = st.columns(2)
+                st.write("### Información Comercial")
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     importancia = st.selectbox("Importancia", ["bajo", "medio", "alto"])
                 with col2:
                     dias_credito = st.number_input("Días de Crédito", min_value=0, value=0, step=1)
+                with col3:
+                    emite_elec = st.checkbox("Emite Electrónica", value=False)
+                with col4:
+                    pass
+
+                st.write("### Información Tributaria")
+                col1, col2 = st.columns(2)
+                with col1:
+                    timbrado_num = st.text_input("Número Timbrado", placeholder="Ej: 12345678")
+                with col2:
+                    timbrado_venc = st.date_input("Vencimiento Timbrado", value=None)
+
+                st.write("### Información Contable")
+                cuentas_data, _ = api.list_plan_cuentas()
+                if cuentas_data and "results" in cuentas_data:
+                    cuentas = cuentas_data["results"]
+                    cuenta_options = {f"{c.get('codigo_cuenta')} - {c.get('descripcion')}": c.get('id') for c in cuentas}
+                    cuenta_contable = st.selectbox("Cuenta Contable para Compras", options=list(cuenta_options.keys()) if cuenta_options else ["Sin cuentas disponibles"], key="prov_cuenta_contable")
+                    cuenta_contable_value = cuenta_options.get(cuenta_contable) if cuenta_contable in cuenta_options else None
+                else:
+                    st.warning("No hay cuentas contables disponibles. Crea el plan de cuentas primero.")
+                    cuenta_contable_value = None
 
                 if st.form_submit_button("💾 Guardar Proveedor", type="primary", use_container_width=True):
                     if not nombre or not ruc or not pais:
@@ -587,14 +888,22 @@ def render():
                         payload = {
                             "nombre": nombre,
                             "ruc_numero": ruc,
+                            "ruc_alfanumerico": ruc_alfa,
                             "pais": pais,
                             "email": email,
+                            "email_set": email_set,
                             "telefono": telefono,
                             "contacto_nombre": contacto,
                             "direccion": direccion,
                             "importancia": importancia,
-                            "dias_credito": dias_credito
+                            "dias_credito": dias_credito,
+                            "emite_electronica": emite_elec,
+                            "timbrado_numero": timbrado_num,
+                            "timbrado_vencimiento": str(timbrado_venc) if timbrado_venc else None
                         }
+                        
+                        if cuenta_contable_value:
+                            payload["cuenta_contable"] = cuenta_contable_value
 
                         result, err = api.create_proveedor(payload)
                         if err:

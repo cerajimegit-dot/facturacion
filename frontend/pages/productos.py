@@ -36,10 +36,14 @@ def render():
                             st.write(f"**SKU:** {prod.get('sku', '-')}")
                             st.write(f"**Tipo:** {prod.get('tipo', '-')}")
                             st.write(f"**Precio:** {fmt(prod.get('precio_unitario', 0), '₲ ')}")
+                            st.write(f"**Moneda:** {prod.get('moneda', '-')}")
                         with c2:
                             st.write(f"**Costo:** {fmt(prod.get('costo', 0), '₲ ')}")
                             st.write(f"**IVA:** {prod.get('impuesto_porcentaje', 10)}%")
                             st.write(f"**Activo:** {'✅' if prod.get('activo', True) else '❌'}")
+                        
+                        if prod.get('cuenta_contable'):
+                            st.write(f"**Cuenta Contable:** {prod.get('cuenta_contable')}")
 
                         if st.button("🗑️ Eliminar", key=f"del_prod_{prod['id']}"):
                             ok, e = api.delete_producto(prod["id"])
@@ -66,6 +70,17 @@ def render():
 
             descripcion = st.text_area("Descripción", placeholder="Descripción del producto...")
 
+            st.write("### Información Contable")
+            cuentas_data, _ = api.list_plan_cuentas()
+            if cuentas_data and "results" in cuentas_data:
+                cuentas = cuentas_data["results"]
+                cuenta_options = {f"{c.get('codigo_cuenta')} - {c.get('descripcion')}": c.get('id') for c in cuentas}
+                cuenta_contable_id = st.selectbox("Cuenta Contable de DEBE", options=list(cuenta_options.keys()) if cuenta_options else ["Sin cuentas disponibles"])
+                cuenta_contable_value = cuenta_options.get(cuenta_contable_id) if cuenta_contable_id in cuenta_options else None
+            else:
+                st.warning("No hay cuentas contables disponibles. Crea el plan de cuentas primero.")
+                cuenta_contable_value = None
+
             if st.form_submit_button("Crear Producto", type="primary", use_container_width=True):
                 if not sku or not nombre:
                     notify_error("SKU y Nombre son obligatorios")
@@ -76,6 +91,9 @@ def render():
                         "moneda": moneda, "impuesto_porcentaje": str(impuesto),
                         "imagen_url": imagen_url, "descripcion": descripcion,
                     }
+                    if cuenta_contable_value:
+                        payload["cuenta_contable"] = cuenta_contable_value
+                    
                     result, err = api.create_producto(payload)
                     if err:
                         notify_error(f"No se pudo crear el producto", {"details": str(err), "payload": payload})
@@ -126,6 +144,39 @@ def render():
                         descripcion = st.text_area("Descripción", value=prod.get("descripcion", ""), height=100)
                         
                         activo = st.checkbox("Activo", value=prod.get("activo", True))
+                        
+                        st.write("### Información Contable")
+                        cuentas_data, _ = api.list_plan_cuentas()
+                        if cuentas_data and "results" in cuentas_data:
+                            cuentas = cuentas_data["results"]
+                            cuenta_options = {f"{c.get('codigo_cuenta')} - {c.get('descripcion')}": c.get('id') for c in cuentas}
+                            
+                            current_cuenta_id = prod.get('cuenta_contable')
+                            # Find the matching option by ID
+                            current_option = None
+                            if current_cuenta_id:
+                                for opt, cid in cuenta_options.items():
+                                    if str(cid) == str(current_cuenta_id):
+                                        current_option = opt
+                                        break
+                            
+                            # Get index or default to 0
+                            options_list = list(cuenta_options.keys())
+                            if current_option and current_option in options_list:
+                                cuenta_index = options_list.index(current_option)
+                            else:
+                                cuenta_index = 0
+                            
+                            cuenta_contable_id = st.selectbox(
+                                "Cuenta Contable de DEBE", 
+                                options=options_list if options_list else ["Sin cuentas disponibles"],
+                                index=cuenta_index,
+                                key=f"edit_cuenta_contable_{prod.get('id', '')}"
+                            )
+                            cuenta_contable_value = cuenta_options.get(cuenta_contable_id)
+                        else:
+                            st.warning("No hay cuentas contables disponibles. Crea el plan de cuentas primero.")
+                            cuenta_contable_value = prod.get('cuenta_contable')
 
                         submitted = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
                         
@@ -150,6 +201,8 @@ def render():
                                     "imagen_url": imagen_url.strip() if imagen_url else "",
                                     "activo": bool(activo),
                                 }
+                                if cuenta_contable_value:
+                                    payload["cuenta_contable"] = cuenta_contable_value
                                 
                                 try:
                                     result, err = api.update_producto(prod["id"], payload)
