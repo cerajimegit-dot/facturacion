@@ -1,6 +1,10 @@
 """Serializers for Ventas models."""
 from rest_framework import serializers
-from .models import Cotizacion, LineaCotizacion, Venta, LineaVenta, CuentaPorCobrar, RegistroPago
+from .models import (
+    Cotizacion, LineaCotizacion, Venta, LineaVenta,
+    CuentaPorCobrar, RegistroPago, NotaCredito, LineaNotaCredito,
+    CONDICION_IVA_CHOICES,
+)
 
 
 class LineaCotizacionSerializer(serializers.ModelSerializer):
@@ -11,9 +15,9 @@ class LineaCotizacionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'producto', 'producto_nombre', 'descripcion',
             'cantidad', 'precio_unitario', 'descuento_porcentaje',
-            'impuesto_porcentaje', 'subtotal', 'impuesto_monto', 'total',
+            'condicion_iva', 'impuesto_porcentaje', 'subtotal', 'impuesto_monto', 'total',
         ]
-        read_only_fields = ['id', 'subtotal', 'impuesto_monto', 'total']
+        read_only_fields = ['id', 'subtotal', 'impuesto_monto', 'total', 'impuesto_porcentaje']
 
 
 class CotizacionSerializer(serializers.ModelSerializer):
@@ -40,10 +44,10 @@ class LineaVentaSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'producto', 'producto_nombre', 'producto_sku',
             'descripcion', 'cantidad', 'precio_unitario',
-            'descuento_porcentaje', 'impuesto_porcentaje',
+            'descuento_porcentaje', 'condicion_iva', 'impuesto_porcentaje',
             'subtotal', 'impuesto_monto', 'total',
         ]
-        read_only_fields = ['id', 'subtotal', 'impuesto_monto', 'total']
+        read_only_fields = ['id', 'subtotal', 'impuesto_monto', 'total', 'impuesto_porcentaje']
 
 
 class VentaSerializer(serializers.ModelSerializer):
@@ -53,7 +57,7 @@ class VentaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Venta
         fields = [
-            'id', 'numero', 'cliente', 'cliente_nombre',
+            'id', 'numero', 'tipo_comprobante', 'cliente', 'cliente_nombre',
             'cotizacion', 'fecha', 'fecha_vencimiento',
             'estado', 'moneda', 'tipo_cambio',
             'subtotal', 'impuestos', 'descuento', 'total',
@@ -112,3 +116,44 @@ class RegistroPagoCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = RegistroPago
         fields = ['venta', 'monto', 'metodo_pago', 'referencia', 'observaciones']
+
+
+class LineaNotaCreditoSerializer(serializers.ModelSerializer):
+    producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
+
+    class Meta:
+        model = LineaNotaCredito
+        fields = [
+            'id', 'producto', 'producto_nombre', 'descripcion',
+            'cantidad', 'precio_unitario', 'condicion_iva',
+            'impuesto_porcentaje', 'subtotal', 'impuesto_monto', 'total',
+        ]
+        read_only_fields = ['id', 'subtotal', 'impuesto_monto', 'total', 'impuesto_porcentaje']
+
+
+class NotaCreditoSerializer(serializers.ModelSerializer):
+    lineas = LineaNotaCreditoSerializer(many=True, read_only=True)
+    cliente_nombre = serializers.CharField(source='cliente.nombre', read_only=True)
+    venta_numero = serializers.CharField(source='venta_original.numero', read_only=True)
+
+    class Meta:
+        model = NotaCredito
+        fields = [
+            'id', 'numero', 'venta_original', 'venta_numero',
+            'cliente', 'cliente_nombre', 'fecha', 'motivo', 'descripcion',
+            'subtotal', 'impuestos', 'total', 'estado',
+            'lineas', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'subtotal', 'impuestos', 'total', 'created_at', 'updated_at']
+
+
+class NotaCreditoListSerializer(serializers.ModelSerializer):
+    cliente_nombre = serializers.CharField(source='cliente.nombre', read_only=True)
+    venta_numero = serializers.CharField(source='venta_original.numero', read_only=True)
+
+    class Meta:
+        model = NotaCredito
+        fields = [
+            'id', 'numero', 'venta_numero', 'cliente_nombre',
+            'fecha', 'motivo', 'total', 'estado',
+        ]

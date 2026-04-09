@@ -26,6 +26,7 @@ urlpatterns = [
     path('api/v1/auditoria/', include('apps.auditoria.urls')),
     path('api/v1/compras/', include('apps.compras.urls')),
     path('api/v1/contabilidad/', include('apps.contabilidad.urls')),
+    path('api/v1/activos-fijos/', include('apps.activos_fijos.urls')),
     # API Schema
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),

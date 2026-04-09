@@ -1,18 +1,25 @@
-"""Views for Ventas, Cotizaciones, and Cuentas por Cobrar."""
-from rest_framework import viewsets, status
+"""Views for Ventas, Cotizaciones, Cuentas por Cobrar, and Notas de Crédito."""
+from rest_framework import viewsets, status, serializers as drf_serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone
+from datetime import timedelta
 from apps.core.mixins import TenantQuerySetMixin
 from apps.core.permissions import IsEmpresaMember
-from .models import Cotizacion, LineaCotizacion, Venta, LineaVenta, CuentaPorCobrar, RegistroPago
+from .models import (
+    Cotizacion, LineaCotizacion, Venta, LineaVenta,
+    CuentaPorCobrar, RegistroPago, NotaCredito, LineaNotaCredito,
+)
 from .serializers import (
     CotizacionSerializer, LineaCotizacionSerializer,
     VentaSerializer, VentaListSerializer, LineaVentaSerializer,
     CuentaPorCobrarSerializer, RegistroPagoSerializer, RegistroPagoCreateSerializer,
+    NotaCreditoSerializer, NotaCreditoListSerializer, LineaNotaCreditoSerializer,
 )
+from .services import VentaService, PagoService
 
 
 class CotizacionViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
@@ -82,6 +89,38 @@ class VentaViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
             return VentaListSerializer
         return VentaSerializer
 
+    def update(self, request, *args, **kwargs):
+        """Bloquear edición de ventas que no estén en borrador.
+        Para PATCH (partial=True), permitir observaciones_cobro siempre.
+        """
+        partial = kwargs.get('partial', False)
+        venta = self.get_object()
+        if venta.estado != 'borrador':
+            if partial:
+                campos_editables_siempre = {'observaciones_cobro'}
+                campos_solicitados = set(request.data.keys())
+                if not campos_solicitados.issubset(campos_editables_siempre):
+                    return Response(
+                        {'detail': 'Solo se pueden editar ventas en estado borrador (excepto observaciones).'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            else:
+                return Response(
+                    {'detail': 'Solo se pueden editar ventas en estado borrador.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """Bloquear eliminación de ventas confirmadas."""
+        venta = self.get_object()
+        if venta.estado != 'borrador':
+            return Response(
+                {'detail': 'Solo se pueden eliminar ventas en borrador. Use anulación.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=['post'])
     def agregar_linea(self, request, pk=None):
         venta = self.get_object()
@@ -92,45 +131,32 @@ class VentaViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
             )
         serializer = LineaVentaSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(venta=venta)
+        serializer.save(venta=venta, empresa=venta.empresa)
         venta.recalcular_totales()
         return Response(LineaVentaSerializer(serializer.instance).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def confirmar(self, request, pk=None):
         venta = self.get_object()
-        if venta.estado != 'borrador':
+        try:
+            VentaService.confirmar_venta(venta, usuario=request.user)
+        except ValueError as e:
             return Response(
-                {'detail': 'Solo se pueden confirmar ventas en borrador.'},
+                {'detail': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
-            )
-        with transaction.atomic():
-            venta.estado = 'confirmada'
-            venta.saldo_pendiente = venta.total
-            venta.save(update_fields=['estado', 'saldo_pendiente'])
-            CuentaPorCobrar.objects.create(
-                empresa=venta.empresa,
-                venta=venta,
-                cliente=venta.cliente,
-                monto_original=venta.total,
-                saldo=venta.total,
-                moneda=venta.moneda,
-                fecha_emision=venta.fecha,
-                fecha_vencimiento=venta.fecha_vencimiento or venta.fecha,
             )
         return Response(VentaSerializer(venta).data)
 
     @action(detail=True, methods=['post'])
     def anular(self, request, pk=None):
         venta = self.get_object()
-        if venta.estado == 'anulada':
+        try:
+            VentaService.anular_venta(venta, usuario=request.user)
+        except ValueError as e:
             return Response(
-                {'detail': 'La venta ya está anulada.'},
+                {'detail': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        venta.estado = 'anulada'
-        venta.save(update_fields=['estado'])
-        venta.cuentas_por_cobrar.update(estado='pagada', saldo=0)
         return Response(VentaSerializer(venta).data)
 
 
@@ -175,6 +201,75 @@ class CuentaPorCobrarViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
         )
         return Response({**total, **vencidas})
 
+    @action(detail=False, methods=['get'])
+    def aging(self, request):
+        """Aging report por tramos: 0-30, 31-60, 61-90, 90+ días."""
+        from django.db.models import Sum, Count, Q, Case, When, DecimalField
+        empresa = self.get_empresa()
+        hoy = timezone.now().date()
+
+        qs = CuentaPorCobrar.objects.filter(
+            empresa=empresa,
+            estado__in=['pendiente', 'parcial'],
+        )
+
+        tramos = qs.aggregate(
+            corriente=Sum(
+                Case(
+                    When(fecha_vencimiento__gte=hoy, then='saldo'),
+                    default=0,
+                    output_field=DecimalField(),
+                )
+            ),
+            tramo_0_30=Sum(
+                Case(
+                    When(
+                        fecha_vencimiento__lt=hoy,
+                        fecha_vencimiento__gte=hoy - timedelta(days=30),
+                        then='saldo',
+                    ),
+                    default=0,
+                    output_field=DecimalField(),
+                )
+            ),
+            tramo_31_60=Sum(
+                Case(
+                    When(
+                        fecha_vencimiento__lt=hoy - timedelta(days=30),
+                        fecha_vencimiento__gte=hoy - timedelta(days=60),
+                        then='saldo',
+                    ),
+                    default=0,
+                    output_field=DecimalField(),
+                )
+            ),
+            tramo_61_90=Sum(
+                Case(
+                    When(
+                        fecha_vencimiento__lt=hoy - timedelta(days=60),
+                        fecha_vencimiento__gte=hoy - timedelta(days=90),
+                        then='saldo',
+                    ),
+                    default=0,
+                    output_field=DecimalField(),
+                )
+            ),
+            tramo_90_plus=Sum(
+                Case(
+                    When(
+                        fecha_vencimiento__lt=hoy - timedelta(days=90),
+                        then='saldo',
+                    ),
+                    default=0,
+                    output_field=DecimalField(),
+                )
+            ),
+            total_pendiente=Sum('saldo'),
+            total_cuentas=Count('id'),
+        )
+
+        return Response(tramos)
+
 
 class RegistroPagoViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
     """ViewSet for recording partial payments."""
@@ -214,3 +309,43 @@ class RegistroPagoViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
             venta.save(update_fields=['total_pagado', 'saldo_pendiente', 'estado'])
         
         return Response(RegistroPagoSerializer(pago).data, status=status.HTTP_201_CREATED)
+
+
+class NotaCreditoViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
+    """ViewSet para Notas de Crédito."""
+    queryset = NotaCredito.objects.select_related('venta_original', 'cliente').prefetch_related('lineas')
+    permission_classes = [IsAuthenticated, IsEmpresaMember]
+    filterset_fields = ['estado', 'cliente', 'motivo']
+    search_fields = ['numero', 'cliente__nombre', 'venta_original__numero']
+    ordering_fields = ['fecha', 'numero', 'total']
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return NotaCreditoListSerializer
+        return NotaCreditoSerializer
+
+    @action(detail=True, methods=['post'])
+    def agregar_linea(self, request, pk=None):
+        nc = self.get_object()
+        if nc.estado != 'borrador':
+            return Response(
+                {'detail': 'Solo se pueden agregar líneas a NC en borrador.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = LineaNotaCreditoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(nota_credito=nc, empresa=nc.empresa)
+        nc.recalcular_totales()
+        return Response(LineaNotaCreditoSerializer(serializer.instance).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def confirmar(self, request, pk=None):
+        nc = self.get_object()
+        try:
+            VentaService.confirmar_nota_credito(nc, usuario=request.user)
+        except ValueError as e:
+            return Response(
+                {'detail': str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(NotaCreditoSerializer(nc).data)

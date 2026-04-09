@@ -9,8 +9,8 @@ def render():
     show_session_notifications()
     st.header("🧾 Ventas")
 
-    tab_ventas, tab_nueva, tab_cxc, tab_cotiz = st.tabs([
-        "📋 Ventas", "➕ Nueva Venta", "💳 Cuentas por Cobrar", "📄 Cotizaciones"
+    tab_ventas, tab_nueva, tab_cxc, tab_nc, tab_cotiz = st.tabs([
+        "📋 Ventas", "➕ Nueva Venta", "💳 Cuentas por Cobrar", "📝 Notas de Crédito", "📄 Cotizaciones"
     ])
 
     # ── Ventas List ───────────────────────────────────────────────────────────
@@ -144,7 +144,7 @@ def render():
                     st.write(f"**Total actual:** {fmt(venta_detail.get('total', 0), '₲ ')}")
 
                 with st.form("add_line"):
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
                     with col1:
                         prod_opts = {p["id"]: f"{p.get('sku','')} - {p.get('nombre','')}" for p in productos}
                         prod_id = st.selectbox("Producto", options=list(prod_opts.keys()),
@@ -153,12 +153,19 @@ def render():
                         cantidad = st.number_input("Cantidad", min_value=1, value=1, step=1)
                     with col3:
                         precio = st.number_input("Precio Unitario", min_value=0, value=0, step=1000)
+                    with col4:
+                        condicion_iva = st.selectbox(
+                            "Condición IVA",
+                            options=['gravada_10', 'gravada_5', 'exenta'],
+                            format_func=lambda x: {'gravada_10': 'Gravada 10%', 'gravada_5': 'Gravada 5%', 'exenta': 'Exenta'}[x],
+                        )
 
                     if st.form_submit_button("Agregar Linea", use_container_width=True):
                         payload = {
                             "producto": prod_id,
                             "cantidad": str(cantidad),
                             "precio_unitario": str(precio),
+                            "condicion_iva": condicion_iva,
                         }
                         result, err = api.agregar_linea_venta(venta_id, payload)
                         if err:
@@ -286,6 +293,108 @@ def render():
                     st.dataframe(vdf, use_container_width=True, hide_index=True)
                 else:
                     notify_info("No hay cuentas vencidas")
+
+        with st.expander("📊 Aging Report (Antigüedad de Saldos)"):
+            aging_data, aging_err = api.get_cxc_aging()
+            if aging_err:
+                notify_error("No se pudo cargar el aging report", {"details": str(aging_err)})
+            elif aging_data:
+                ac1, ac2, ac3, ac4, ac5 = st.columns(5)
+                with ac1:
+                    st.metric("Corriente", fmt(aging_data.get('corriente', 0), '₲ '))
+                with ac2:
+                    st.metric("0-30 días", fmt(aging_data.get('tramo_0_30', 0), '₲ '))
+                with ac3:
+                    st.metric("31-60 días", fmt(aging_data.get('tramo_31_60', 0), '₲ '))
+                with ac4:
+                    st.metric("61-90 días", fmt(aging_data.get('tramo_61_90', 0), '₲ '))
+                with ac5:
+                    st.metric("90+ días", fmt(aging_data.get('tramo_90_plus', 0), '₲ '))
+
+                total_p = aging_data.get('total_pendiente', 0)
+                if total_p and float(total_p) > 0:
+                    st.caption(f"Total pendiente: {fmt(total_p, '₲ ')} en {aging_data.get('total_cuentas', 0)} cuentas")
+
+    # ── Notas de Crédito ──────────────────────────────────────────────────────
+    with tab_nc:
+        st.subheader("Notas de Crédito")
+        nc_data, nc_err = api.list_notas_credito()
+        if nc_err:
+            notify_error("No se pudieron cargar las notas de crédito", {"details": str(nc_err)})
+        else:
+            notas = results(nc_data)
+            if notas:
+                df_nc = pd.DataFrame(notas)
+                nc_cols = [c for c in ["numero", "venta_numero", "cliente_nombre", "fecha", "motivo", "total", "estado"] if c in df_nc.columns]
+                st.dataframe(df_nc[nc_cols] if nc_cols else df_nc, use_container_width=True, hide_index=True)
+
+                for nc in notas:
+                    if nc.get("estado") == "borrador":
+                        with st.expander(f"NC-{nc.get('numero', '')} (Borrador)"):
+                            if st.button("✅ Confirmar NC", key=f"conf_nc_{nc['id']}"):
+                                result, e = api.confirmar_nota_credito(nc["id"])
+                                if e:
+                                    notify_error(f"No se pudo confirmar la NC", {"details": str(e)})
+                                else:
+                                    notify_success(f"NC **{nc.get('numero')}** confirmada")
+                                    st.cache_data.clear()
+                                    st.cache_resource.clear()
+                                    import time
+                                    time.sleep(0.5)
+                                    st.rerun()
+            else:
+                st.info("No hay notas de crédito registradas.")
+
+        st.divider()
+        st.subheader("➕ Nueva Nota de Crédito")
+
+        # Cargar ventas confirmadas para vincular
+        ventas_data, _ = api.list_ventas()
+        ventas_list = results(ventas_data) if ventas_data else []
+        ventas_confirmadas = [v for v in ventas_list if v.get("estado") in ("confirmada", "parcial", "facturada")]
+
+        if not ventas_confirmadas:
+            st.info("No hay ventas confirmadas para emitir nota de crédito.")
+        else:
+            with st.form("new_nc"):
+                nc_numero = st.text_input("Número NC *", placeholder="NC-001")
+                venta_opts = {v["id"]: f"{v.get('numero','')} - {v.get('cliente_nombre','')} - {fmt(v.get('total',0), '₲ ')}" for v in ventas_confirmadas}
+                nc_venta_id = st.selectbox("Factura Original *", options=list(venta_opts.keys()),
+                                            format_func=lambda x: venta_opts[x])
+                nc_motivo = st.selectbox("Motivo", [
+                    ("devolucion", "Devolución de mercadería"),
+                    ("descuento", "Descuento posterior"),
+                    ("bonificacion", "Bonificación"),
+                    ("error_facturacion", "Error de facturación"),
+                    ("otro", "Otro"),
+                ], format_func=lambda x: x[1])
+                nc_fecha = st.date_input("Fecha")
+                nc_desc = st.text_area("Descripción", placeholder="Detalle del motivo...")
+
+                if st.form_submit_button("Crear NC (Borrador)", type="primary", use_container_width=True):
+                    if not nc_numero:
+                        notify_error("El número de NC es obligatorio")
+                    else:
+                        # Buscar cliente de la venta seleccionada
+                        venta_sel = next((v for v in ventas_confirmadas if v["id"] == nc_venta_id), None)
+                        payload = {
+                            "numero": nc_numero,
+                            "venta_original": nc_venta_id,
+                            "cliente": venta_sel.get("cliente") if venta_sel else "",
+                            "fecha": str(nc_fecha),
+                            "motivo": nc_motivo[0],
+                            "descripcion": nc_desc,
+                        }
+                        result, err = api.create_nota_credito(payload)
+                        if err:
+                            notify_error(f"No se pudo crear la NC", {"error": str(err)})
+                        else:
+                            notify_success(f"NC **{nc_numero}** creada en borrador")
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            import time
+                            time.sleep(0.5)
+                            st.rerun()
 
     # ── Cotizaciones ──────────────────────────────────────────────────────────
     with tab_cotiz:

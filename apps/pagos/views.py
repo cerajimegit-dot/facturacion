@@ -8,6 +8,7 @@ from apps.core.mixins import TenantQuerySetMixin
 from apps.core.permissions import IsEmpresaMember
 from .models import Pago
 from .serializers import PagoSerializer
+from apps.ventas.services import PagoService
 
 
 class PagoViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
@@ -24,67 +25,26 @@ class PagoViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def confirmar(self, request, pk=None):
-        """Confirm a payment and update sale balances."""
+        """Confirm a payment and update sale balances + generate accounting entry."""
         pago = self.get_object()
-        if pago.estado != 'pendiente':
+        try:
+            PagoService.confirmar_pago(pago, usuario=request.user)
+        except ValueError as e:
             return Response(
-                {'detail': 'Solo se pueden confirmar pagos pendientes.'},
+                {'detail': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        with transaction.atomic():
-            pago.estado = 'confirmado'
-            pago.save(update_fields=['estado'])
-            venta = pago.venta
-            venta.total_pagado += pago.monto
-            venta.saldo_pendiente = venta.total - venta.total_pagado
-            if venta.saldo_pendiente <= 0:
-                venta.estado = 'pagada'
-                venta.saldo_pendiente = 0
-            else:
-                venta.estado = 'parcial'
-            venta.save(update_fields=['total_pagado', 'saldo_pendiente', 'estado'])
-            # Update cuenta por cobrar
-            from apps.ventas.models import CuentaPorCobrar
-            cxc = CuentaPorCobrar.objects.filter(venta=venta).first()
-            if cxc:
-                cxc.monto_pagado += pago.monto
-                cxc.saldo = cxc.monto_original - cxc.monto_pagado
-                if cxc.saldo <= 0:
-                    cxc.estado = 'pagada'
-                    cxc.saldo = 0
-                else:
-                    cxc.estado = 'parcial'
-                cxc.save(update_fields=['monto_pagado', 'saldo', 'estado'])
         return Response(PagoSerializer(pago).data)
 
     @action(detail=True, methods=['post'])
     def anular(self, request, pk=None):
         """Void a confirmed payment and reverse balances."""
         pago = self.get_object()
-        if pago.estado != 'confirmado':
+        try:
+            PagoService.anular_pago(pago, usuario=request.user)
+        except ValueError as e:
             return Response(
-                {'detail': 'Solo se pueden anular pagos confirmados.'},
+                {'detail': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        with transaction.atomic():
-            pago.estado = 'anulado'
-            pago.save(update_fields=['estado'])
-            venta = pago.venta
-            venta.total_pagado -= pago.monto
-            venta.saldo_pendiente = venta.total - venta.total_pagado
-            if venta.total_pagado <= 0:
-                venta.estado = 'confirmada'
-                venta.total_pagado = 0
-            else:
-                venta.estado = 'parcial'
-            venta.save(update_fields=['total_pagado', 'saldo_pendiente', 'estado'])
-            from apps.ventas.models import CuentaPorCobrar
-            cxc = CuentaPorCobrar.objects.filter(venta=venta).first()
-            if cxc:
-                cxc.monto_pagado -= pago.monto
-                cxc.saldo = cxc.monto_original - cxc.monto_pagado
-                cxc.estado = 'pendiente' if cxc.monto_pagado <= 0 else 'parcial'
-                if cxc.monto_pagado < 0:
-                    cxc.monto_pagado = 0
-                cxc.save(update_fields=['monto_pagado', 'saldo', 'estado'])
         return Response(PagoSerializer(pago).data)

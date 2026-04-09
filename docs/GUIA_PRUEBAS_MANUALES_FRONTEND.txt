@@ -1,0 +1,690 @@
+============================================================================
+ GUÍA DE PRUEBAS MANUALES — FRONTEND (Streamlit)
+ Validación de mejoras de auditoría contable
+ Fecha: Abril 2026
+============================================================================
+
+
+============================================================================
+ PASO 0: LEVANTAR EL SISTEMA
+============================================================================
+
+Programa necesario: Terminal de Windows (PowerShell o CMD)
+Navegador web: Chrome, Edge o Firefox
+
+PASO A PASO PARA INICIAR:
+
+  1. Abrir la PRIMERA terminal de PowerShell
+     (click derecho en Inicio → Terminal o buscar "PowerShell")
+
+  2. Escribir estos comandos para levantar el BACKEND (servidor Django):
+
+     > cd c:\Users\prueb\CascadeProjects\facturacion
+     > python manage.py runserver
+
+     Esperar a que aparezca:
+       "Starting development server at http://127.0.0.1:8000/"
+     ⚠ NO cerrar esta terminal. Dejarla abierta.
+
+  3. Abrir una SEGUNDA terminal de PowerShell
+     (click derecho en la barra de tareas → nueva ventana)
+
+  4. Escribir estos comandos para levantar el FRONTEND (Streamlit):
+
+     > cd c:\Users\prueb\CascadeProjects\facturacion\frontend
+     > streamlit run app.py
+
+     Esperar a que aparezca:
+       "You can now view your Streamlit app in your browser."
+       "Local URL: http://localhost:8501"
+
+  5. Se abrirá automáticamente el navegador con la aplicación.
+     Si no se abre, abrir manualmente:
+       → Abrir Chrome/Edge
+       → Escribir en la barra de dirección: http://localhost:8501
+       → Presionar Enter
+
+
+============================================================================
+ PASO 1: INICIAR SESIÓN
+============================================================================
+
+Programa: Navegador web (Chrome/Edge) en http://localhost:8501
+
+Al entrar, se muestra la pantalla "📊 Sistema de Facturación Multi-Empresa"
+con dos pestañas: "🔐 Iniciar Sesión" y "📝 Registrarse".
+
+  1. En la pestaña "🔐 Iniciar Sesión":
+     - Campo "Email": escribir el email del usuario admin
+       (ej: admin@example.com)
+     - Campo "Contraseña": escribir la contraseña
+     - Opcional: marcar "✅ Recordarme en este dispositivo"
+     - Click en botón azul "Ingresar"
+
+  2. Si no tiene usuario, ir a "📝 Registrarse" y crear uno primero.
+
+  3. Tras ingresar, aparece el Dashboard con el menú lateral izquierdo.
+
+
+============================================================================
+ PASO 2: SELECCIONAR EMPRESA
+============================================================================
+
+Programa: Mismo navegador, ya logueado.
+
+  1. En el menú lateral izquierdo, click en "🏢 Empresas"
+  2. Si no hay empresa creada:
+     - Completar el formulario con los datos de la empresa
+     - Click "Crear Empresa"
+  3. Si ya existe una empresa, click "🔑 Seleccionar" junto a ella
+  4. Arriba en el sidebar aparecerá "🏢 [Nombre de la empresa]"
+     confirmando que la empresa está activa.
+
+  ⚠ IMPORTANTE: Sin empresa seleccionada, los demás módulos no funcionan.
+
+
+============================================================================
+ PASO 3: PREPARAR DATOS DE PRUEBA
+============================================================================
+
+Programa: Mismo navegador.
+
+A) PLAN DE CUENTAS (necesario para asientos contables automáticos)
+   1. En el menú lateral, click "📋 Contabilidad"
+   2. Pestaña "➕ Nueva Cuenta" o "📤 Importar Excel"
+   3. Crear las siguientes cuentas (mínimo):
+
+      Código   │ Descripción              │ Condición  │ Clase
+      ─────────┼──────────────────────────┼────────────┼──────────
+      1110     │ Caja                     │ Deudora    │ Analítica
+      1120     │ Bancos                   │ Deudora    │ Analítica
+      1130     │ Cuentas por Cobrar       │ Deudora    │ Analítica
+      1410     │ Mercaderías              │ Deudora    │ Analítica
+      1510     │ IVA Crédito Fiscal       │ Deudora    │ Analítica
+      2110     │ Cuentas por Pagar        │ Acreedora  │ Analítica
+      2120     │ IVA Débito Fiscal        │ Acreedora  │ Analítica
+      4110     │ Ingresos por Ventas      │ Acreedora  │ Analítica
+      4120     │ Devoluciones sobre Ventas │ Deudora   │ Analítica
+
+B) CLIENTES
+   1. En el menú lateral, click "👥 Clientes"
+   2. Crear Cliente 1 (con límite de crédito):
+      - Nombre: "Cliente Prueba Límite"
+      - RUC: un RUC válido (ej: 80012345-0)
+      - Límite de crédito: 500000
+   3. Crear Cliente 2 (sin límite de crédito):
+      - Nombre: "Cliente Prueba Libre"
+      - RUC: otro RUC válido (ej: 4839399-1)
+      - Límite de crédito: 0 (dejar vacío o en cero)
+
+C) PRODUCTOS
+   1. En el menú lateral, click "📦 Productos"
+   2. Crear al menos un producto:
+      - SKU: "PROD-001"
+      - Nombre: "Producto de Prueba"
+      - Precio: 100000
+      - Tipo: "producto"
+   3. Opcionalmente crear un servicio:
+      - SKU: "SERV-001"
+      - Nombre: "Servicio de Prueba"
+      - Precio: 50000
+      - Tipo: "servicio"
+
+D) INVENTARIO (stock para productos)
+   1. En el menú lateral, click "🏭 Inventario"
+   2. Pestaña "🏢 Almacenes" → crear almacén:
+      - Código: "ALM01"
+      - Nombre: "Almacén Principal"
+   3. Pestaña "🔄 Movimientos" → registrar entrada:
+      - Producto: "PROD-001"
+      - Almacén: "ALM01"
+      - Tipo: "Entrada"
+      - Cantidad: 100
+   4. Pestaña "📦 Stock" → verificar que aparece 100 unidades
+
+
+============================================================================
+ YA ESTÁ LISTO PARA LAS PRUEBAS
+============================================================================
+
+ A partir de aquí, ejecutar las 11 pruebas en orden.
+ Cada prueba indica exactamente dónde ir en el menú lateral y qué hacer.
+
+
+============================================================================
+ PRUEBA 1: CONDICIÓN IVA EN LÍNEAS DE VENTA
+============================================================================
+
+Objetivo: Verificar que al agregar líneas a una venta, se puede seleccionar
+la condición de IVA (10%, 5%, Exenta) y el sistema fuerza la tasa correcta.
+
+DÓNDE IR:
+  → Menú lateral izquierdo → click "🧾 Ventas"
+  → Se abre la página con pestañas arriba
+  → Click en la pestaña "➕ Nueva Venta"
+
+PASOS:
+  1. En la pestaña "➕ Nueva Venta" se ve un formulario "Paso 1"
+  2. Campo "Numero de Factura": escribir "FAC-IVA-TEST"
+  3. Campo "Cliente": seleccionar "Cliente Prueba Libre" del dropdown
+  4. Campo "Fecha": dejar la fecha de hoy
+  5. Click botón azul "Crear Venta (Borrador)"
+  6. Aparece la sección "Paso 2: Agregar Líneas" debajo
+  7. Primera línea:
+     - Producto: seleccionar "PROD-001" del dropdown
+     - Cantidad: escribir 2
+     - Precio Unitario: escribir 100000
+     - Condición IVA: seleccionar "Gravada 10%" del dropdown
+     - Click "Agregar Línea"
+  8. Segunda línea:
+     - Producto: seleccionar "PROD-001"
+     - Cantidad: 1
+     - Precio Unitario: 50000
+     - Condición IVA: seleccionar "Gravada 5%"
+     - Click "Agregar Línea"
+  9. Tercera línea:
+     - Producto: seleccionar "PROD-001"
+     - Cantidad: 1
+     - Precio Unitario: 30000
+     - Condición IVA: seleccionar "Exenta"
+     - Click "Agregar Línea"
+
+RESULTADO ESPERADO:
+  ✓ El selector "Condición IVA" aparece junto al precio unitario
+  ✓ Línea 10%: subtotal 200.000, impuesto 20.000, total 220.000
+  ✓ Línea 5%:  subtotal 50.000,  impuesto 2.500,  total 52.500
+  ✓ Línea 0%:  subtotal 30.000,  impuesto 0,      total 30.000
+  ✓ Total venta: 302.500
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 2: CONFIRMAR VENTA — STOCK + ASIENTO CONTABLE + CxC
+============================================================================
+
+Objetivo: Al confirmar una venta se descuenta stock, se crea CxC y se
+genera asiento contable automático.
+
+PREREQUISITO: Tener la venta en borrador con líneas (de Prueba 1).
+
+DÓNDE IR:
+  → Seguir en la misma página de Ventas (pestaña "➕ Nueva Venta")
+  → Sección "Paso 3: Confirmar y Cobro" (debajo de las líneas)
+
+PASOS:
+  1. Scroll hacia abajo en la pestaña "➕ Nueva Venta"
+  2. Ver sección "Paso 3: Confirmar y Cobro"
+  3. NO marcar el checkbox "Esta factura ya fue pagada"
+  4. Click botón azul "✅ Confirmar Venta"
+  5. Aparece mensaje verde "Venta confirmada! Se generó la cuenta por cobrar"
+
+  VERIFICAR ESTADO DE LA VENTA:
+  6. Click en la pestaña "📋 Ventas" (primera pestaña arriba)
+  7. Buscar la venta "FAC-IVA-TEST" en la tabla
+  8. Verificar columna "estado" → debe decir "confirmada"
+
+  VERIFICAR CxC:
+  9. Click en la pestaña "💳 Cuentas por Cobrar" (tercera pestaña)
+  10. En la tabla aparece una nueva fila con la venta y el monto total
+
+  VERIFICAR ASIENTO CONTABLE:
+  11. Menú lateral → click "📋 Contabilidad"
+  12. Click pestaña "Asientos"
+  13. Buscar un asiento tipo "VENTA" vinculado a la factura
+  14. Verificar que tiene:
+      - Línea débito: Cuentas por Cobrar (1130) por el total
+      - Línea crédito: Ingresos por Ventas (4110)
+      - Línea crédito: IVA Débito Fiscal (2120)
+
+  VERIFICAR STOCK:
+  15. Menú lateral → click "🏭 Inventario"
+  16. Pestaña "📦 Stock"
+  17. Verificar que la cantidad de PROD-001 bajó (de 100 a 96, por 4 uds)
+
+RESULTADO ESPERADO:
+  ✓ Venta pasa a estado "confirmada"
+  ✓ CxC creada con monto = total de la venta
+  ✓ Asiento contable balanceado (debe = haber = total venta)
+  ✓ Stock descontado según cantidades vendidas
+  ✓ Movimiento de stock tipo "salida" registrado
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 3: BLOQUEO DE EDICIÓN EN VENTAS CONFIRMADAS
+============================================================================
+
+Objetivo: Las ventas confirmadas no deben poder editarse (excepto
+observaciones de cobro).
+
+DÓNDE IR:
+  → Menú lateral → "🧾 Ventas" → pestaña "📋 Ventas"
+
+PASOS EN EL FRONTEND:
+  1. En la lista de ventas, buscar la venta confirmada de Prueba 2
+  2. Click en la barra expandible de esa venta
+  3. Verificar que el botón "✅ Confirmar" YA NO aparece
+     (solo aparece para ventas en borrador)
+  4. Verificar que sí aparece el botón "❌ Anular"
+
+PASOS EN EL NAVEGADOR (prueba de API directa):
+  5. Abrir una nueva pestaña del navegador
+  6. Ir a: http://127.0.0.1:8000/api/v1/ventas/
+     (esta es la interfaz Swagger/DRF del backend)
+  7. Buscar el ID de la venta confirmada en la lista
+  8. Probar estas operaciones (usando la interfaz DRF o Postman):
+
+     a. PUT http://127.0.0.1:8000/api/v1/ventas/{id}/?empresa={emp_id}
+        Body: {"numero": "HACKED", "cliente": "...", "fecha": "2026-01-01"}
+        → Debe retornar 400 "Solo se pueden editar ventas en borrador"
+
+     b. PATCH http://127.0.0.1:8000/api/v1/ventas/{id}/?empresa={emp_id}
+        Body: {"numero": "OTRO"}
+        → Debe retornar 400
+
+     c. PATCH http://127.0.0.1:8000/api/v1/ventas/{id}/?empresa={emp_id}
+        Body: {"observaciones_cobro": "Seguimiento de cobro OK"}
+        → Debe retornar 200 (esta es la ÚNICA excepción permitida)
+
+     d. DELETE http://127.0.0.1:8000/api/v1/ventas/{id}/?empresa={emp_id}
+        → Debe retornar 400 "Use anulación"
+
+RESULTADO ESPERADO:
+  ✓ No se puede hacer PUT en venta confirmada
+  ✓ PATCH solo acepta observaciones_cobro
+  ✓ DELETE bloqueado (sugiere anulación)
+  ✓ El botón "✅ Confirmar" no aparece para ventas ya confirmadas
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 4: LÍMITE DE CRÉDITO
+============================================================================
+
+Objetivo: No permitir confirmar una venta si excede el límite de crédito
+del cliente.
+
+DÓNDE IR:
+  → Menú lateral → "🧾 Ventas" → pestaña "➕ Nueva Venta"
+
+PASOS:
+  1. En la pestaña "➕ Nueva Venta":
+     - Numero: "FAC-LIMITE-TEST"
+     - Cliente: seleccionar "Cliente Prueba Límite" (tiene límite 500.000)
+     - Click "Crear Venta (Borrador)"
+  2. Agregar una línea:
+     - Producto: PROD-001
+     - Cantidad: 5
+     - Precio Unitario: 100000
+     - Condición IVA: Gravada 10%
+     - Click "Agregar Línea"
+     (Total será: 5 × 100.000 + 10% = 550.000, mayor al límite de 500.000)
+  3. Scroll abajo a "Paso 3" → click "✅ Confirmar Venta"
+
+RESULTADO ESPERADO:
+  ✓ Error "Límite de crédito excedido" con el detalle de montos
+  ✓ La venta permanece en estado "borrador"
+  ✓ No se descuenta stock ni se generan CxC/asientos
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 5: STOCK INSUFICIENTE
+============================================================================
+
+Objetivo: No permitir confirmar una venta si no hay stock suficiente.
+
+PREPARACIÓN — Verificar stock actual:
+  → Menú lateral → "🏭 Inventario" → pestaña "📦 Stock"
+  → Anotar cuántas unidades tiene PROD-001 (ej: 96 tras Prueba 2)
+
+DÓNDE IR PARA LA PRUEBA:
+  → Menú lateral → "🧾 Ventas" → pestaña "➕ Nueva Venta"
+
+PASOS:
+  1. En "➕ Nueva Venta":
+     - Numero: "FAC-STOCK-TEST"
+     - Cliente: seleccionar "Cliente Prueba Libre" (sin límite)
+     - Click "Crear Venta (Borrador)"
+  2. Agregar línea con cantidad excesiva:
+     - Producto: PROD-001
+     - Cantidad: 500 (más de lo disponible en stock)
+     - Precio Unitario: 100000
+     - Condición IVA: Gravada 10%
+     - Click "Agregar Línea"
+  3. Scroll abajo → click "✅ Confirmar Venta"
+
+RESULTADO ESPERADO:
+  ✓ Error "Stock insuficiente para [producto]"
+  ✓ La venta permanece en borrador
+  ✓ El stock no se altera
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 6: ANULACIÓN DE VENTA — ESTADO CxC "ANULADA"
+============================================================================
+
+Objetivo: Al anular una venta, la CxC pasa a estado "anulada" (no "pagada")
+y se revierte el stock.
+
+PREPARACIÓN:
+  → Necesita una venta confirmada (usar la de Prueba 2: FAC-IVA-TEST)
+  → Menú lateral → "🏭 Inventario" → "📦 Stock"
+  → Anotar stock actual de PROD-001 (ej: 96)
+
+DÓNDE IR:
+  → Menú lateral → "🧾 Ventas" → pestaña "📋 Ventas"
+
+PASOS:
+  1. En la lista de ventas, buscar "FAC-IVA-TEST" (estado: confirmada)
+  2. Click en la barra expandible de esa venta para abrir detalle
+  3. Click botón rojo "❌ Anular"
+  4. Aparece mensaje "Venta FAC-IVA-TEST anulada"
+  5. Verificar en la tabla que el estado cambió a "anulada"
+
+  VERIFICAR CxC:
+  6. Click pestaña "💳 Cuentas por Cobrar"
+  7. Buscar la CxC de esa venta → debe decir estado "anulada"
+     ⚠ CLAVE: NO debe decir "pagada". Debe decir "anulada".
+
+  VERIFICAR STOCK REVERTIDO:
+  8. Menú lateral → "🏭 Inventario" → "📦 Stock"
+  9. PROD-001 debe tener stock restaurado (ej: 100 de nuevo)
+
+RESULTADO ESPERADO:
+  ✓ Venta cambia a "anulada"
+  ✓ CxC cambia a "anulada" con saldo 0
+  ✓ Stock revertido a cantidades anteriores
+  ✓ Asiento de reversión generado en Contabilidad
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 7: CUENTAS POR COBRAR — AGING REPORT
+============================================================================
+
+Objetivo: Verificar el reporte de antigüedad de saldos con 5 tramos.
+
+PREPARACIÓN: Crear más ventas confirmadas para tener CxC con saldo.
+  (si la de Prueba 2 ya fue anulada en Prueba 6, crear nuevas ventas
+  y confirmarlas primero)
+
+DÓNDE IR:
+  → Menú lateral → "🧾 Ventas" → pestaña "💳 Cuentas por Cobrar"
+
+PASOS:
+  1. En la pestaña "💳 Cuentas por Cobrar" se ven 3 métricas arriba:
+     - Total Pendiente (en guaraníes)
+     - Cantidad CxC (número de cuentas)
+     - Vencidas (cantidad de cuentas vencidas)
+
+  2. En la tabla debajo, verificar las CxC con columnas:
+     venta_numero, cliente, monto_original, monto_pagado, saldo, fecha_venc
+
+  3. Debajo de la tabla, click en "⚠️ Cuentas Vencidas" para expandir
+     → Muestra solo las CxC cuya fecha de vencimiento ya pasó
+
+  4. Click en "📊 Aging Report (Antigüedad de Saldos)" para expandir
+     → Aparecen 5 columnas con métricas:
+
+     ┌──────────┬──────────┬──────────┬──────────┬──────────┐
+     │Corriente │ 0-30 días│31-60 días│61-90 días│  90+ días│
+     │₲ XXXXX  │₲ XXXXX  │₲ XXXXX  │₲ XXXXX  │₲ XXXXX  │
+     └──────────┴──────────┴──────────┴──────────┴──────────┘
+
+  5. Debajo aparece el caption con total y cantidad de cuentas
+
+RESULTADO ESPERADO:
+  ✓ Se muestran 5 métricas con los tramos correctos
+  ✓ Los montos suman el total pendiente mostrado arriba
+  ✓ El caption muestra total en guaraníes + cantidad de cuentas
+  ✓ Las CxC vencidas aparecen en "⚠️ Cuentas Vencidas"
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 8: NOTAS DE CRÉDITO — FLUJO COMPLETO
+============================================================================
+
+Objetivo: Crear una Nota de Crédito, agregar líneas y confirmarla.
+
+PREPARACIÓN: Necesita una venta en estado "confirmada" o "parcial".
+  Si no tiene, crear una venta nueva, agregar líneas y confirmarla primero.
+
+DÓNDE IR:
+  → Menú lateral → "🧾 Ventas" → pestaña "📝 Notas de Crédito"
+  (es la cuarta pestaña de la página de Ventas)
+
+PASOS:
+  1. En la pestaña "📝 Notas de Crédito", scroll abajo hasta
+     "➕ Nueva Nota de Crédito"
+
+  2. Completar el formulario:
+     - Número NC: escribir "NC-001"
+     - Factura Original: seleccionar del dropdown
+       (solo aparecen ventas confirmadas o parciales)
+     - Motivo: seleccionar "Devolución de mercadería"
+     - Fecha: dejar hoy
+     - Descripción: "Devolución parcial de productos"
+     - Click botón azul "Crear NC (Borrador)"
+
+  3. La NC aparece arriba en la tabla con estado "borrador"
+
+  4. AGREGAR LÍNEAS A LA NC (por API, abrir nueva pestaña del navegador):
+     → Ir a: http://127.0.0.1:8000/api/v1/ventas/notas-credito/
+     → Buscar el ID de la NC recién creada
+     → Enviar POST a:
+        http://127.0.0.1:8000/api/v1/ventas/notas-credito/{nc_id}/agregar_linea/?empresa={emp_id}
+        Body (JSON):
+        {
+          "producto": "<id del producto>",
+          "cantidad": "1",
+          "precio_unitario": "100000",
+          "condicion_iva": "gravada_10"
+        }
+
+  5. Volver al frontend (http://localhost:8501)
+  6. En la pestaña "📝 Notas de Crédito", la NC aparece como "borrador"
+  7. Click en la barra expandible de la NC
+  8. Click botón "✅ Confirmar NC"
+  9. Mensaje de éxito: "NC NC-001 confirmada"
+
+  VERIFICACIONES:
+  10. La NC cambia a estado "confirmada" en la tabla
+  11. Menú lateral → "🏭 Inventario" → "📦 Stock"
+      → Stock de PROD-001 aumentó en 1 unidad (devuelta)
+  12. Menú lateral → "📋 Contabilidad" → "Asientos"
+      → Asiento tipo NOTA_CREDITO generado
+  13. Volver a "🧾 Ventas" → "💳 Cuentas por Cobrar"
+      → El saldo de la CxC se redujo por el monto de la NC
+
+RESULTADO ESPERADO:
+  ✓ NC creada con datos correctos y estado "borrador"
+  ✓ Solo ventas confirmadas/parciales en el dropdown
+  ✓ Motivos disponibles: Devolución, Descuento, Bonificación, Error, Otro
+  ✓ Al confirmar, saldo de venta ajustado
+  ✓ Stock incrementado por la cantidad de la NC
+  ✓ Asiento contable de NC balanceado
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 9: VALIDACIÓN DE RUC PARAGUAYO
+============================================================================
+
+Objetivo: El sistema valida el formato y dígito verificador del RUC.
+
+DÓNDE IR:
+  → Menú lateral → "👥 Clientes"
+  → Buscar el formulario de crear/editar cliente
+
+PASOS:
+  1. En el módulo Clientes, ir al formulario de nuevo cliente
+
+  2. PRUEBA A — RUC con formato inválido:
+     - Nombre: "Test RUC A"
+     - RUC: escribir "ABCDEF" (letras, no números)
+     - Click "Crear" o "Guardar"
+     → Debe mostrar error de formato
+
+  3. PRUEBA B — RUC con dígito verificador incorrecto:
+     - Nombre: "Test RUC B"
+     - RUC: escribir "80012345-9" (el DV correcto es 0, no 9)
+     - Click "Crear" o "Guardar"
+     → Debe mostrar error "dígito verificador inválido"
+
+  4. PRUEBA C — RUC válido:
+     - Nombre: "Test RUC C"
+     - RUC: escribir "80012345-0" (formato correcto, DV correcto)
+     - Click "Crear" o "Guardar"
+     → Se crea correctamente sin error
+
+  5. PRUEBA D — RUC vacío:
+     - Nombre: "Test RUC D"
+     - RUC: dejar en blanco (vacío)
+     - Click "Crear" o "Guardar"
+     → Se permite crear (RUC es opcional)
+
+RESULTADO ESPERADO:
+  ✓ Formato XXXXXXX-D exigido (1-8 dígitos, guión, 1 dígito)
+  ✓ DV validado por algoritmo módulo 11
+  ✓ RUC vacío permitido
+  ✓ Mensajes de error claros en español
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 10: FLUJO COMPLETO INTEGRADO (E2E)
+============================================================================
+
+Objetivo: Validar el flujo completo desde venta hasta pago con contabilidad.
+
+PASOS:
+
+  A) PREPARAR DATOS:
+  1. Menú lateral → "👥 Clientes" → crear cliente:
+     - Nombre: "Cliente E2E"
+     - RUC: un RUC válido
+     - Límite de crédito: 10000000 (10 millones)
+
+  2. Menú lateral → "📦 Productos" → verificar que PROD-001 existe
+
+  3. Menú lateral → "🏭 Inventario" → "📦 Stock"
+     → Verificar que PROD-001 tiene stock suficiente (>10 uds)
+
+  B) CREAR Y CONFIRMAR VENTA:
+  4. Menú lateral → "🧾 Ventas" → pestaña "➕ Nueva Venta"
+     - Numero: "FAC-E2E-001"
+     - Cliente: "Cliente E2E"
+     - Click "Crear Venta (Borrador)"
+  5. Agregar línea 1:
+     - Producto: PROD-001, Cantidad: 3, Precio: 100000
+     - Condición IVA: Gravada 10%
+     - Click "Agregar Línea"
+  6. Agregar línea 2:
+     - Producto: PROD-001, Cantidad: 2, Precio: 50000
+     - Condición IVA: Exenta
+     - Click "Agregar Línea"
+  7. Click "✅ Confirmar Venta"
+  8. Verificar:
+     □ Pestaña "📋 Ventas" → estado "confirmada"
+     □ Pestaña "💳 Cuentas por Cobrar" → CxC creada
+     □ "🏭 Inventario" → stock reducido en 5 unidades
+     □ "📋 Contabilidad" → asiento tipo VENTA generado
+
+  C) REGISTRAR PAGO (por API, en nueva pestaña del navegador):
+  9. Abrir nueva pestaña → http://127.0.0.1:8000/api/v1/pagos/
+  10. Enviar POST:
+      {
+        "venta": "<id de la venta>",
+        "cliente": "<id del cliente>",
+        "fecha": "2026-04-07",
+        "monto": "<total de la venta>",
+        "metodo": "transferencia"
+      }
+  11. Copiar el ID del pago creado
+  12. Enviar POST a:
+      http://127.0.0.1:8000/api/v1/pagos/{pago_id}/confirmar/?empresa={emp_id}
+
+  D) VERIFICAR TODO:
+  13. Volver a http://localhost:8501
+  14. "🧾 Ventas" → "📋 Ventas" → FAC-E2E-001 dice "pagada"
+  15. "💳 Cuentas por Cobrar" → CxC dice "pagada", saldo 0
+  16. "📋 Contabilidad" → "Asientos" → 2 asientos:
+      - VENTA: Débito CxC / Crédito Ingresos + IVA DF
+      - PAGO: Débito Bancos (1120) / Crédito CxC (1130)
+
+RESULTADO ESPERADO:
+  ✓ Todo el flujo funciona sin errores
+  ✓ Contabilidad se genera automáticamente en cada paso
+  ✓ Stock se mantiene consistente
+  ✓ Saldos de CxC son correctos en todo momento
+  ✓ Aging report refleja el estado actual
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ PRUEBA 11: SERVICIOS SIN PLAN DE CUENTAS
+============================================================================
+
+Objetivo: Si la empresa no tiene plan de cuentas configurado, las
+operaciones (confirmar, pagar, anular) funcionan sin generar asientos.
+
+PASOS:
+  1. Menú lateral → "🏢 Empresas" → crear una empresa nueva:
+     - Código: "SIN-PC"
+     - Nombre: "Empresa Sin Contabilidad"
+     - NO crear cuentas contables para esta empresa
+  2. Click "🔑 Seleccionar" en la nueva empresa
+  3. Menú lateral → "👥 Clientes" → crear un cliente para esta empresa
+  4. Menú lateral → "📦 Productos" → crear un producto
+  5. Menú lateral → "🏭 Inventario" → crear almacén y registrar stock
+  6. Menú lateral → "🧾 Ventas" → crear venta, agregar línea, confirmar
+
+RESULTADO ESPERADO:
+  ✓ La venta se confirma correctamente
+  ✓ CxC creada normalmente
+  ✓ Stock descontado normalmente
+  ✓ NO se genera asiento contable (omisión silenciosa)
+  ✓ No aparece error al usuario
+
+  [  ] PASA   [  ] NO PASA   Observaciones: ____________________________
+
+
+============================================================================
+ RESUMEN DE EJECUCIÓN
+============================================================================
+
+ Fecha de prueba: ___________________
+ Probado por:     ___________________
+ Versión:         Post-auditoría contable v2
+
+ Prueba 1  - Condición IVA               [  ] PASA  [  ] NO PASA
+ Prueba 2  - Confirmar (stock+asiento)    [  ] PASA  [  ] NO PASA
+ Prueba 3  - Bloqueo edición confirmadas  [  ] PASA  [  ] NO PASA
+ Prueba 4  - Límite de crédito           [  ] PASA  [  ] NO PASA
+ Prueba 5  - Stock insuficiente           [  ] PASA  [  ] NO PASA
+ Prueba 6  - Anulación CxC estado        [  ] PASA  [  ] NO PASA
+ Prueba 7  - Aging Report                 [  ] PASA  [  ] NO PASA
+ Prueba 8  - Notas de Crédito             [  ] PASA  [  ] NO PASA
+ Prueba 9  - Validación RUC               [  ] PASA  [  ] NO PASA
+ Prueba 10 - Flujo completo E2E           [  ] PASA  [  ] NO PASA
+ Prueba 11 - Sin plan de cuentas          [  ] PASA  [  ] NO PASA
+
+ Total: ___/11 PASAN
+
+ Observaciones generales:
+ _______________________________________________________________________
+ _______________________________________________________________________
+ _______________________________________________________________________

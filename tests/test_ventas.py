@@ -8,6 +8,7 @@ from apps.clientes.models import Cliente
 from apps.productos.models import Producto
 from apps.ventas.models import Venta, LineaVenta, CuentaPorCobrar
 from apps.pagos.models import Pago
+from apps.inventario.models import Almacen, Stock
 
 
 @pytest.fixture
@@ -24,6 +25,23 @@ def producto_test(empresa_context):
     return Producto.objects.create(
         empresa=empresa, sku='PROD001', nombre='Producto Test',
         precio_unitario=Decimal('100000'), impuesto_porcentaje=Decimal('10'),
+    )
+
+
+@pytest.fixture
+def almacen_test(empresa_context):
+    _, empresa = empresa_context
+    return Almacen.objects.create(
+        empresa=empresa, codigo='ALM01', nombre='Almacén Principal',
+    )
+
+
+@pytest.fixture
+def stock_test(empresa_context, producto_test, almacen_test):
+    _, empresa = empresa_context
+    return Stock.objects.create(
+        empresa=empresa, producto=producto_test, almacen=almacen_test,
+        cantidad=Decimal('1000'), stock_minimo=Decimal('10'),
     )
 
 
@@ -120,7 +138,7 @@ class TestLineaVentaCalculo:
 
 @pytest.mark.django_db
 class TestConfirmarVenta:
-    def test_confirmar_crea_cuenta_por_cobrar(self, empresa_context, venta_con_linea):
+    def test_confirmar_crea_cuenta_por_cobrar(self, empresa_context, venta_con_linea, stock_test):
         client, empresa = empresa_context
         url = reverse('venta-confirmar', kwargs={'pk': str(venta_con_linea.id)})
         response = client.post(f"{url}?empresa={empresa.id}")
@@ -132,7 +150,7 @@ class TestConfirmarVenta:
         assert cxc.monto_original == venta_con_linea.total
         assert cxc.saldo == venta_con_linea.total
 
-    def test_no_confirmar_venta_ya_confirmada(self, empresa_context, venta_con_linea):
+    def test_no_confirmar_venta_ya_confirmada(self, empresa_context, venta_con_linea, stock_test):
         client, empresa = empresa_context
         venta_con_linea.estado = 'confirmada'
         venta_con_linea.save()
@@ -143,7 +161,7 @@ class TestConfirmarVenta:
 
 @pytest.mark.django_db
 class TestFlujoCompleto:
-    def test_venta_pago_completo(self, empresa_context, venta_con_linea, cliente_test):
+    def test_venta_pago_completo(self, empresa_context, venta_con_linea, cliente_test, stock_test):
         """Test full flow: confirm sale -> register payment -> confirm payment."""
         client, empresa = empresa_context
 
@@ -182,7 +200,7 @@ class TestFlujoCompleto:
         assert cxc.estado == 'pagada'
         assert cxc.saldo == 0
 
-    def test_pago_parcial(self, empresa_context, venta_con_linea, cliente_test):
+    def test_pago_parcial(self, empresa_context, venta_con_linea, cliente_test, stock_test):
         """Test partial payment flow."""
         client, empresa = empresa_context
 

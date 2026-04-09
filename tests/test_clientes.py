@@ -14,7 +14,7 @@ class TestClienteCRUD:
         url = reverse('cliente-list')
         data = {
             'nombre': 'Cliente Test',
-            'ruc': '12345678-0',
+            'ruc': '12345678-9',
             'telefono': '0981123456',
             'email': 'cliente@test.com',
             'tipo_cliente': 'persona',
@@ -22,7 +22,7 @@ class TestClienteCRUD:
         response = client.post(f"{url}?empresa={empresa.id}", data)
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data['nombre'] == 'Cliente Test'
-        assert Cliente.objects.filter(empresa=empresa, ruc='12345678-0').exists()
+        assert Cliente.objects.filter(empresa=empresa, ruc='12345678-9').exists()
 
     def test_listar_clientes_aislados_por_empresa(self, empresa_context, db):
         client, empresa = empresa_context

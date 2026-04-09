@@ -351,6 +351,35 @@ def get_cxc_vencidas():
     return _handle(resp)
 
 
+def get_cxc_aging():
+    """Aging report por tramos (0-30, 31-60, 61-90, 90+ días)."""
+    resp = requests.get(f"{API_BASE}/ventas/cuentas-por-cobrar/aging/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+# ── Notas de Crédito ─────────────────────────────────────────────────────────
+
+def list_notas_credito():
+    resp = requests.get(f"{API_BASE}/ventas/notas-credito/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def create_nota_credito(data: dict):
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/ventas/notas-credito/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def agregar_linea_nota_credito(nc_id: str, data: dict):
+    resp = requests.post(f"{API_BASE}/ventas/notas-credito/{nc_id}/agregar_linea/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def confirmar_nota_credito(nc_id: str):
+    resp = requests.post(f"{API_BASE}/ventas/notas-credito/{nc_id}/confirmar/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
 # ── Registros de Pago (Pagos Parciales) ──────────────────────────────────────
 
 def create_registro_pago(data: dict):
@@ -777,3 +806,165 @@ def create_cotizacion_diaria(data: dict):
     data.update(_empresa_param())
     resp = requests.post(f"{API_BASE}/contabilidad/cotizaciones-diarias/", json=data, headers=_headers(), params=_empresa_param())
     return _handle(resp)
+
+
+# ── Activos Fijos ─────────────────────────────────────────────────────────────
+
+def list_activos_fijos(search: str = "", estado: str = "", tipo: str = ""):
+    params = _empresa_param()
+    if search:
+        params["search"] = search
+    if estado:
+        params["estado"] = estado
+    if tipo:
+        params["tipo"] = tipo
+    return _fetch_all(f"{API_BASE}/activos-fijos/activos/", params=params)
+
+
+def get_activo_fijo(activo_id: str):
+    resp = requests.get(f"{API_BASE}/activos-fijos/activos/{activo_id}/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def create_activo_fijo(data: dict):
+    resp = requests.post(f"{API_BASE}/activos-fijos/activos/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def update_activo_fijo(activo_id: str, data: dict):
+    resp = requests.patch(f"{API_BASE}/activos-fijos/activos/{activo_id}/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_activo_fijo(activo_id: str):
+    resp = requests.delete(f"{API_BASE}/activos-fijos/activos/{activo_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
+
+
+def get_resumen_activos():
+    resp = requests.get(f"{API_BASE}/activos-fijos/activos/resumen/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def get_alertas_activos():
+    resp = requests.get(f"{API_BASE}/activos-fijos/activos/alertas/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def mover_activo(activo_id: str, data: dict):
+    resp = requests.post(f"{API_BASE}/activos-fijos/activos/{activo_id}/mover/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def dar_baja_activo(activo_id: str, data: dict):
+    resp = requests.post(f"{API_BASE}/activos-fijos/activos/{activo_id}/dar_baja/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def calcular_depreciacion(data: dict):
+    resp = requests.post(f"{API_BASE}/activos-fijos/activos/calcular_depreciacion/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+# Clasificaciones de activos
+def list_clasificaciones_activo():
+    return _fetch_all(f"{API_BASE}/activos-fijos/clasificaciones/", params=_empresa_param())
+
+
+def create_clasificacion_activo(data: dict):
+    resp = requests.post(f"{API_BASE}/activos-fijos/clasificaciones/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_clasificacion_activo(cl_id: str):
+    resp = requests.delete(f"{API_BASE}/activos-fijos/clasificaciones/{cl_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
+
+
+# Ubicaciones de activos
+def list_ubicaciones_activo():
+    return _fetch_all(f"{API_BASE}/activos-fijos/ubicaciones/", params=_empresa_param())
+
+
+def create_ubicacion_activo(data: dict):
+    resp = requests.post(f"{API_BASE}/activos-fijos/ubicaciones/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_ubicacion_activo(ub_id: str):
+    resp = requests.delete(f"{API_BASE}/activos-fijos/ubicaciones/{ub_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
+
+
+# Centros de costo
+def list_centros_costo():
+    return _fetch_all(f"{API_BASE}/activos-fijos/centros-costo/", params=_empresa_param())
+
+
+def create_centro_costo(data: dict):
+    resp = requests.post(f"{API_BASE}/activos-fijos/centros-costo/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def delete_centro_costo(cc_id: str):
+    resp = requests.delete(f"{API_BASE}/activos-fijos/centros-costo/{cc_id}/", headers=_headers(), params=_empresa_param())
+    return resp.ok, None if resp.ok else f"HTTP {resp.status_code}"
+
+
+# Mantenimientos
+def list_mantenimientos_activo(activo_id: str = ""):
+    params = _empresa_param()
+    if activo_id:
+        params["activo"] = activo_id
+    return _fetch_all(f"{API_BASE}/activos-fijos/mantenimientos/", params=params)
+
+
+def create_mantenimiento_activo(data: dict):
+    resp = requests.post(f"{API_BASE}/activos-fijos/mantenimientos/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def completar_mantenimiento(mant_id: str):
+    resp = requests.post(f"{API_BASE}/activos-fijos/mantenimientos/{mant_id}/completar/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+def cancelar_mantenimiento(mant_id: str):
+    resp = requests.post(f"{API_BASE}/activos-fijos/mantenimientos/{mant_id}/cancelar/", headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
+# Movimientos
+def list_movimientos_activo(activo_id: str = ""):
+    params = _empresa_param()
+    if activo_id:
+        params["activo"] = activo_id
+    return _fetch_all(f"{API_BASE}/activos-fijos/movimientos/", params=params)
+
+
+# Bajas
+def list_bajas_activo():
+    return _fetch_all(f"{API_BASE}/activos-fijos/bajas/", params=_empresa_param())
+
+
+# Depreciaciones
+def list_depreciaciones(activo_id: str = "", anio: str = "", mes: str = ""):
+    params = _empresa_param()
+    if activo_id:
+        params["activo"] = activo_id
+    if anio:
+        params["anio"] = anio
+    if mes:
+        params["mes"] = mes
+    return _fetch_all(f"{API_BASE}/activos-fijos/depreciaciones/", params=params)
+
+
+def get_reporte_depreciacion(anio: str = "", mes: str = ""):
+    params = _empresa_param()
+    if anio:
+        params["anio"] = anio
+    if mes:
+        params["mes"] = mes
+    resp = requests.get(f"{API_BASE}/activos-fijos/depreciaciones/reporte/", headers=_headers(), params=params)
+    return _handle(resp)
+

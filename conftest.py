@@ -23,7 +23,7 @@ def empresa(db):
     return Empresa.objects.create(
         codigo='EMP001',
         nombre='Empresa Test',
-        ruc='80012345-6',
+        ruc='80012345-0',
         razon_social='Empresa Test S.A.',
         moneda_principal='PYG',
     )

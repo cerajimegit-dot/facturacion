@@ -72,8 +72,13 @@ def render():
 
             st.write("### Información Contable")
             cuentas_data, _ = api.list_plan_cuentas()
-            if cuentas_data and "results" in cuentas_data:
-                cuentas = cuentas_data["results"]
+            cuentas = []
+            if cuentas_data:
+                if isinstance(cuentas_data, list):
+                    cuentas = cuentas_data
+                elif isinstance(cuentas_data, dict) and "results" in cuentas_data:
+                    cuentas = cuentas_data["results"]
+            if cuentas:
                 cuenta_options = {f"{c.get('codigo_cuenta')} - {c.get('descripcion')}": c.get('id') for c in cuentas}
                 cuenta_contable_id = st.selectbox("Cuenta Contable de DEBE", options=list(cuenta_options.keys()) if cuenta_options else ["Sin cuentas disponibles"])
                 cuenta_contable_value = cuenta_options.get(cuenta_contable_id) if cuenta_contable_id in cuenta_options else None
@@ -147,8 +152,13 @@ def render():
                         
                         st.write("### Información Contable")
                         cuentas_data, _ = api.list_plan_cuentas()
-                        if cuentas_data and "results" in cuentas_data:
-                            cuentas = cuentas_data["results"]
+                        cuentas = []
+                        if cuentas_data:
+                            if isinstance(cuentas_data, list):
+                                cuentas = cuentas_data
+                            elif isinstance(cuentas_data, dict) and "results" in cuentas_data:
+                                cuentas = cuentas_data["results"]
+                        if cuentas:
                             cuenta_options = {f"{c.get('codigo_cuenta')} - {c.get('descripcion')}": c.get('id') for c in cuentas}
                             
                             current_cuenta_id = prod.get('cuenta_contable')

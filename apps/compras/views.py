@@ -140,6 +140,10 @@ class CompraViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
                 compra.usuario_recepcion = request.user
                 compra.save()
 
+                # Generar asiento contable automático
+                from apps.contabilidad.services import ContabilidadService
+                ContabilidadService.generar_asiento_compra(compra, usuario=request.user)
+
                 return Response({
                     'status': 'success',
                     'mensaje': f'Compra #{compra.numero} recepcionada exitosamente',

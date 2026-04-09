@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.db import models
 from django.core.validators import MinValueValidator
 from apps.core.models import TenantModel, TenantManager
+from apps.ventas.models import CONDICION_IVA_CHOICES, IVA_TASA_MAP
 
 
 class Proveedor(TenantModel):
@@ -231,10 +232,14 @@ class CompraDetalle(TenantModel):
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0'))]
     )
+    condicion_iva = models.CharField(
+        max_length=15, choices=CONDICION_IVA_CHOICES, default='gravada_10',
+        help_text='Condición de IVA según Ley 6380/19'
+    )
     impuesto_porcentaje = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        default=0
+        default=10
     )
     subtotal = models.DecimalField(max_digits=18, decimal_places=2)
     impuestos = models.DecimalField(max_digits=18, decimal_places=2)
@@ -253,6 +258,8 @@ class CompraDetalle(TenantModel):
     def calculate_totals(self):
         """Calcular subtotal, impuestos y total. Precio incluye IVA."""
         from decimal import Decimal
+        # Forzar tasa IVA legal desde condicion_iva
+        self.impuesto_porcentaje = IVA_TASA_MAP.get(self.condicion_iva, Decimal('10'))
         self.total = self.cantidad * self.precio_unitario
         if self.impuesto_porcentaje and self.impuesto_porcentaje > 0:
             divisor = Decimal('1') + (self.impuesto_porcentaje / Decimal('100'))

@@ -53,6 +53,7 @@ from pages import importacion as pg_importacion
 from pages import reportes as pg_reportes
 from pages import auditoria as pg_auditoria
 from pages import contabilidad as pg_contabilidad
+from pages import activos_fijos as pg_activos_fijos
 
 
 def logout():
@@ -83,6 +84,7 @@ menu_items = {
     "presupuestos": "📋 Presupuestos",
     "pagos": "💰 Pagos",
     "contabilidad": "📋 Contabilidad",
+    "activos_fijos": "🏗️ Activos Fijos",
     "importacion": "📥 Importación Excel",
     "reportes": "📊 Reportes",
     "auditoria": "🔍 Auditoría",
@@ -165,6 +167,7 @@ page_map = {
     "presupuestos": pg_presupuestos,
     "pagos": pg_pagos,
     "contabilidad": pg_contabilidad,
+    "activos_fijos": pg_activos_fijos,
     "importacion": pg_importacion,
     "reportes": pg_reportes,
     "auditoria": pg_auditoria,
