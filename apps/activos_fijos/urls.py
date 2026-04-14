@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ClasificacionActivoViewSet, UbicacionActivoViewSet, CentroCostoViewSet,
     ActivoFijoViewSet, MovimientoActivoViewSet, MantenimientoActivoViewSet,
-    BajaActivoViewSet, DepreciacionMensualViewSet,
+    BajaActivoViewSet, DepreciacionMensualViewSet, ProcesoDepreciacionViewSet,
 )
 
 router = DefaultRouter()
@@ -15,6 +15,7 @@ router.register('movimientos', MovimientoActivoViewSet, basename='movimiento-act
 router.register('mantenimientos', MantenimientoActivoViewSet, basename='mantenimiento-activo')
 router.register('bajas', BajaActivoViewSet, basename='baja-activo')
 router.register('depreciaciones', DepreciacionMensualViewSet, basename='depreciacion')
+router.register('procesos-depreciacion', ProcesoDepreciacionViewSet, basename='proceso-depreciacion')
 router.register('activos', ActivoFijoViewSet, basename='activo-fijo')
 
 urlpatterns = [

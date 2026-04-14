@@ -252,7 +252,7 @@ def render_asientos(empresa_id):
                 df = pd.DataFrame([
                     {
                         "Número": a.get("numero_asiento"),
-                        "Factura": a.get("compra_numero", "-"),
+                        "Factura": a.get("compra_numero") or a.get("venta_numero") or "-",
                         "Fecha": a.get("fecha"),
                         "Tipo": a.get("tipo_asiento", "general"),
                         "Estado": a.get("estado"),
@@ -266,7 +266,7 @@ def render_asientos(empresa_id):
                 
                 # Detalle expandible de cada asiento
                 for a in asientos:
-                    factura = a.get("compra_numero", "")
+                    factura = a.get("compra_numero") or a.get("venta_numero") or ""
                     label = f"📄 Asiento {a.get('numero_asiento')}"
                     if factura:
                         label += f" — Factura: {factura}"
@@ -277,9 +277,13 @@ def render_asientos(empresa_id):
                         elif detail:
                             st.write(f"**Descripción:** {detail.get('descripcion', '-')}")
                             if detail.get("compra_numero"):
-                                st.write(f"**Nro. Factura:** {detail.get('compra_numero')}")
+                                st.write(f"**Nro. Factura Compra:** {detail.get('compra_numero')}")
+                            if detail.get("venta_numero"):
+                                st.write(f"**Nro. Factura Venta:** {detail.get('venta_numero')}")
                             if detail.get("proveedor_nombre"):
                                 st.write(f"**Proveedor:** {detail.get('proveedor_nombre')}")
+                            if detail.get("cliente_nombre"):
+                                st.write(f"**Cliente:** {detail.get('cliente_nombre')}")
                             lineas = detail.get("lineas", [])
                             if lineas:
                                 df_lineas = pd.DataFrame([

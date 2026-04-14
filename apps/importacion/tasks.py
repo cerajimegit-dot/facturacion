@@ -21,6 +21,7 @@ def validate_import_task(job_id):
     from .validators import (
         validate_clientes_row, validate_productos_row,
         validate_stock_row, validate_ventas_row,
+        validate_compras_row, validate_activos_fijos_row,
     )
 
     job = ImportJob.objects.get(id=job_id)
@@ -91,6 +92,10 @@ def validate_import_task(job_id):
                     result = validate_ventas_row(
                         row_dict, row_num, existing_rucs, existing_skus
                     )
+                elif sheet_name == 'compras':
+                    result = validate_compras_row(row_dict, row_num)
+                elif sheet_name == 'activos_fijos':
+                    result = validate_activos_fijos_row(row_dict, row_num)
                 else:
                     continue
 
@@ -192,8 +197,8 @@ def execute_import_task(job_id):
         total_imported = 0
         errors = []
 
-        # Import order matters: clientes -> productos -> stock -> ventas
-        import_order = ['clientes', 'productos', 'stock', 'ventas']
+        # Import order matters: clientes -> productos -> stock -> ventas -> compras -> activos_fijos
+        import_order = ['clientes', 'productos', 'stock', 'ventas', 'compras', 'activos_fijos']
         for sheet_name in import_order:
             if sheet_name not in sheets:
                 logger.info(f"[importacion] job {job_id} hoja {sheet_name} no existe en el archivo")
@@ -211,7 +216,11 @@ def execute_import_task(job_id):
             elif sheet_name == 'stock':
                 count, errs = _import_stock(df, empresa)
             elif sheet_name == 'ventas':
-                count, errs = _import_ventas(df, empresa)
+                count, errs = _import_ventas(df, empresa, job.usuario)
+            elif sheet_name == 'compras':
+                count, errs = _import_compras(df, empresa, job.usuario)
+            elif sheet_name == 'activos_fijos':
+                count, errs = _import_activos_fijos(df, empresa, job.usuario)
             else:
                 continue
 
@@ -513,11 +522,14 @@ def _import_stock(df, empresa):
     return imported, errors
 
 
-def _import_ventas(df, empresa):
-    """Import ventas from DataFrame. Groups lines by numero."""
+def _import_ventas(df, empresa, usuario=None):
+    """Import ventas from DataFrame. Groups lines by numero.
+    Auto-creates missing clients. Generates asientos contables."""
     from apps.clientes.models import Cliente
     from apps.productos.models import Producto
-    from apps.ventas.models import Venta, LineaVenta
+    from apps.ventas.models import Venta, LineaVenta, CuentaPorCobrar
+    from apps.contabilidad.services import ContabilidadService
+    from apps.pagos.models import Pago
 
     print(f"[importacion][ventas] Iniciando import de {len(df)} filas")
     logger.info(f"[importacion][ventas] Iniciando import de {len(df)} filas")
@@ -557,12 +569,26 @@ def _import_ventas(df, empresa):
 
         first_row_num, first_row = rows[0]
         cliente_ruc = str(first_row.get('cliente_ruc', '')).strip()
+        
+        # Auto-crear cliente si no existe
         if cliente_ruc not in ruc_map:
-            errors.append({
-                'fila': first_row_num, 'hoja': 'ventas',
-                'error': f'Cliente RUC no encontrado: {cliente_ruc}'
-            })
-            continue
+            cliente_nombre = str(first_row.get('cliente_nombre', '')).strip() if pd.notna(first_row.get('cliente_nombre')) else ''
+            if not cliente_nombre:
+                cliente_nombre = f"Cliente {cliente_ruc}"
+            try:
+                nuevo_cliente = Cliente.objects.create(
+                    empresa=empresa,
+                    nombre=cliente_nombre,
+                    ruc=cliente_ruc,
+                )
+                ruc_map[cliente_ruc] = nuevo_cliente.id
+                logger.info(f"[importacion][ventas] Auto-creado cliente: {cliente_nombre} ({cliente_ruc})")
+            except Exception as e:
+                errors.append({
+                    'fila': first_row_num, 'hoja': 'ventas',
+                    'error': f'Error creando cliente {cliente_ruc}: {str(e)}'
+                })
+                continue
 
         try:
             fecha_val = first_row.get('fecha')
@@ -577,17 +603,27 @@ def _import_ventas(df, empresa):
             })
             continue
 
-        estado = str(first_row.get('estado', 'confirmada')).strip() if pd.notna(first_row.get('estado')) else 'confirmada'
+        raw_estado = str(first_row.get('estado', 'confirmada')).strip() if pd.notna(first_row.get('estado')) else 'confirmada'
         metodo_pago = str(first_row.get('metodo_pago', '')).strip() if pd.notna(first_row.get('metodo_pago')) else ''
+        
+        # Determinar si está pagada
+        esta_pagada_val = first_row.get('esta_pagada', False)
+        if isinstance(esta_pagada_val, str):
+            esta_pagada = esta_pagada_val.strip().lower() in ('si', 'sí', 'true', '1', 'yes', 'pagada')
+        elif isinstance(esta_pagada_val, bool):
+            esta_pagada = esta_pagada_val
+        else:
+            esta_pagada = raw_estado == 'pagada'
 
         try:
             with transaction.atomic():
+                # Crear venta en borrador
                 venta = Venta.objects.create(
                     empresa=empresa,
                     numero=numero,
                     cliente_id=ruc_map[cliente_ruc],
                     fecha=fecha,
-                    estado=estado,
+                    estado='borrador',
                     metodo_pago=metodo_pago,
                 )
 
@@ -604,11 +640,9 @@ def _import_ventas(df, empresa):
                     try:
                         raw_c = row.get('cantidad', 0)
                         raw_p = row.get('precio_unitario', 0)
-                        raw_i = row.get('impuestos', 10)
                         cantidad = Decimal(str(raw_c).replace(',', '.')) if pd.notna(raw_c) else Decimal('0')
                         precio = Decimal(str(raw_p).replace(',', '.')) if pd.notna(raw_p) else Decimal('0')
-                        imp_pct = Decimal(str(raw_i).replace(',', '.')) if pd.notna(raw_i) else Decimal('10')
-                        for val in (cantidad, precio, imp_pct):
+                        for val in (cantidad, precio):
                             if not val.is_finite():
                                 raise ValueError('NaN value')
                     except Exception:
@@ -618,12 +652,18 @@ def _import_ventas(df, empresa):
                         })
                         continue
 
+                    # Condición IVA
+                    cond_iva = str(row.get('condicion_iva', 'gravada_10')).strip() if pd.notna(row.get('condicion_iva')) else 'gravada_10'
+                    if cond_iva not in ('gravada_10', 'gravada_5', 'exenta'):
+                        cond_iva = 'gravada_10'
+
                     lineas_batch.append(LineaVenta(
                         venta=venta,
+                        empresa=empresa,
                         producto_id=sku_map[sku],
                         cantidad=cantidad,
                         precio_unitario=precio,
-                        impuesto_porcentaje=imp_pct,
+                        condicion_iva=cond_iva,
                     ))
 
                 # Save lines (triggers subtotal calc in save())
@@ -631,6 +671,33 @@ def _import_ventas(df, empresa):
                     linea.save()
 
                 venta.recalcular_totales()
+                
+                # Confirmar venta (genera CxC + asiento)
+                from apps.ventas.services import VentaService
+                VentaService.confirmar_venta(venta, usuario=usuario)
+                
+                # Si está pagada, registrar pago
+                if esta_pagada:
+                    venta.total_pagado = venta.total
+                    venta.saldo_pendiente = Decimal('0')
+                    venta.estado = 'pagada'
+                    venta.save(update_fields=['total_pagado', 'saldo_pendiente', 'estado'])
+                    
+                    CuentaPorCobrar.objects.filter(venta=venta).update(
+                        monto_pagado=venta.total, saldo=Decimal('0'), estado='pagada'
+                    )
+                    
+                    # Registrar pago y generar asiento de cobro
+                    try:
+                        pago_obj = Pago.objects.create(
+                            empresa=empresa, venta=venta, cliente=venta.cliente,
+                            fecha=fecha, monto=venta.total, moneda=venta.moneda,
+                            metodo=metodo_pago or 'efectivo', estado='confirmado',
+                        )
+                        ContabilidadService.generar_asiento_pago(pago_obj, usuario)
+                    except Exception:
+                        pass  # Asiento de pago es opcional
+                
                 existing_numeros.add(numero)
                 imported += 1
 
@@ -642,5 +709,388 @@ def _import_ventas(df, empresa):
 
     logger.info(f"[importacion][ventas] resultado: importados={imported}, errores={len(errors)}")
     print(f"[importacion][ventas] resultado: importados={imported}, errores={len(errors)}")
+
+    return imported, errors
+
+
+def _import_compras(df, empresa, usuario=None):
+    """Import compras from DataFrame. Groups lines by numero.
+    Auto-creates missing proveedores. Generates asientos contables."""
+    from apps.compras.models import Proveedor, Compra, CompraDetalle
+    from apps.productos.models import Producto
+    from apps.inventario.models import Almacen
+    from apps.contabilidad.services import ContabilidadService
+
+    print(f"[importacion][compras] Iniciando import de {len(df)} filas")
+    logger.info(f"[importacion][compras] Iniciando import de {len(df)} filas")
+
+    imported = 0
+    errors = []
+
+    # Build lookup maps
+    ruc_prov_map = dict(
+        Proveedor.objects.filter(empresa=empresa).values_list('ruc_numero', 'id')
+    )
+    sku_map = dict(
+        Producto.objects.filter(empresa=empresa).values_list('sku', 'id')
+    )
+    almacen_map = dict(
+        Almacen.objects.filter(empresa=empresa).values_list('codigo', 'id')
+    )
+    existing_compras = set()
+
+    # Group rows by numero+proveedor
+    compras_grouped = {}
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        numero = str(row.get('numero', '')).strip()
+        prov_ruc = str(row.get('proveedor_ruc', '')).strip()
+        if not numero:
+            errors.append({'fila': row_num, 'hoja': 'compras', 'error': 'numero vacío'})
+            continue
+        key = f"{numero}|{prov_ruc}"
+        if key not in compras_grouped:
+            compras_grouped[key] = []
+        compras_grouped[key].append((row_num, row))
+
+    for key, rows in compras_grouped.items():
+        first_row_num, first_row = rows[0]
+        numero = str(first_row.get('numero', '')).strip()
+        prov_ruc = str(first_row.get('proveedor_ruc', '')).strip()
+        prov_nombre = str(first_row.get('proveedor_nombre', '')).strip() if pd.notna(first_row.get('proveedor_nombre')) else ''
+
+        # Auto-crear proveedor si no existe
+        if prov_ruc not in ruc_prov_map:
+            prov_pais = str(first_row.get('proveedor_pais', 'Paraguay')).strip() if pd.notna(first_row.get('proveedor_pais')) else 'Paraguay'
+            prov_tel = str(first_row.get('proveedor_telefono', '')).strip() if pd.notna(first_row.get('proveedor_telefono')) else ''
+            prov_email = str(first_row.get('proveedor_email', '')).strip() if pd.notna(first_row.get('proveedor_email')) else ''
+            if not prov_nombre:
+                prov_nombre = f"Proveedor {prov_ruc}"
+            try:
+                nuevo_prov = Proveedor.objects.create(
+                    empresa=empresa,
+                    nombre=prov_nombre,
+                    ruc_numero=prov_ruc,
+                    pais=prov_pais,
+                    telefono=prov_tel,
+                    email=prov_email,
+                )
+                ruc_prov_map[prov_ruc] = nuevo_prov.id
+                logger.info(f"[importacion][compras] Auto-creado proveedor: {prov_nombre} ({prov_ruc})")
+            except Exception as e:
+                errors.append({
+                    'fila': first_row_num, 'hoja': 'compras',
+                    'error': f'Error creando proveedor {prov_ruc}: {str(e)}'
+                })
+                continue
+
+        try:
+            fecha_val = first_row.get('fecha')
+            if isinstance(fecha_val, datetime):
+                fecha = fecha_val.date()
+            else:
+                fecha = pd.to_datetime(str(fecha_val)).date()
+        except Exception:
+            errors.append({
+                'fila': first_row_num, 'hoja': 'compras',
+                'error': f'Fecha inválida: {first_row.get("fecha")}'
+            })
+            continue
+
+        # Almacén
+        almacen_codigo = str(first_row.get('almacen_codigo', '')).strip() if pd.notna(first_row.get('almacen_codigo')) else ''
+        if not almacen_codigo:
+            almacen_codigo = 'ALM01'
+        if almacen_codigo not in almacen_map:
+            alm_obj = Almacen.objects.create(
+                empresa=empresa, codigo=almacen_codigo,
+                nombre=f'Almacén {almacen_codigo}'
+            )
+            almacen_map[almacen_codigo] = alm_obj.id
+
+        moneda = str(first_row.get('moneda', 'PYG')).strip().upper() if pd.notna(first_row.get('moneda')) else 'PYG'
+        if moneda not in ('PYG', 'USD'):
+            moneda = 'PYG'
+
+        cotiz_usd = None
+        if moneda == 'USD':
+            try:
+                raw_cotiz = first_row.get('cotizacion_usd', 0)
+                cotiz_usd = Decimal(str(raw_cotiz).replace(',', '.')) if pd.notna(raw_cotiz) and raw_cotiz else Decimal('7500')
+            except Exception:
+                cotiz_usd = Decimal('7500')
+
+        notas = str(first_row.get('notas', '')).strip() if pd.notna(first_row.get('notas')) else ''
+
+        try:
+            with transaction.atomic():
+                compra = Compra(
+                    empresa=empresa,
+                    numero=numero,
+                    fecha=fecha,
+                    proveedor_id=ruc_prov_map[prov_ruc],
+                    almacen_id=almacen_map[almacen_codigo],
+                    moneda=moneda,
+                    cotizacion_usd=cotiz_usd,
+                    notas=notas,
+                    usuario_registra=usuario,
+                )
+                compra.save()
+
+                for row_num, row in rows:
+                    descripcion = str(row.get('descripcion', '')).strip()
+                    try:
+                        raw_c = row.get('cantidad', 0)
+                        raw_p = row.get('precio_unitario', 0)
+                        cantidad = Decimal(str(raw_c).replace(',', '.')) if pd.notna(raw_c) else Decimal('0')
+                        precio = Decimal(str(raw_p).replace(',', '.')) if pd.notna(raw_p) else Decimal('0')
+                        for val in (cantidad, precio):
+                            if not val.is_finite():
+                                raise ValueError('NaN value')
+                    except Exception:
+                        errors.append({
+                            'fila': row_num, 'hoja': 'compras',
+                            'error': 'Valores numéricos inválidos'
+                        })
+                        continue
+
+                    cond_iva = str(row.get('condicion_iva', 'gravada_10')).strip() if pd.notna(row.get('condicion_iva')) else 'gravada_10'
+                    if cond_iva not in ('gravada_10', 'gravada_5', 'exenta'):
+                        cond_iva = 'gravada_10'
+
+                    # Link to product if SKU provided
+                    sku = str(row.get('sku', '')).strip() if pd.notna(row.get('sku')) else ''
+                    prod_id = sku_map.get(sku) if sku else None
+
+                    detalle = CompraDetalle(
+                        compra=compra,
+                        empresa=empresa,
+                        producto_id=prod_id,
+                        descripcion=descripcion or f"Item compra {numero}",
+                        cantidad=cantidad,
+                        precio_unitario=precio,
+                        condicion_iva=cond_iva,
+                        subtotal=Decimal('0'),
+                        impuestos=Decimal('0'),
+                        total=Decimal('0'),
+                    )
+                    detalle.save()
+
+                # Recalcular totales de la compra
+                detalles = compra.detalles.all()
+                compra.subtotal = sum(d.subtotal for d in detalles)
+                compra.impuestos_total = sum(d.impuestos for d in detalles)
+                compra.total = sum(d.total for d in detalles)
+
+                # Marcar como recepcionada y generar asiento
+                compra.estado = 'recepcionada'
+                compra.fecha_recepcion = timezone.now()
+                compra.usuario_recepcion = usuario
+                compra.save()
+
+                # Generar asiento contable
+                ContabilidadService.generar_asiento_compra(compra, usuario)
+
+                imported += 1
+
+        except Exception as e:
+            errors.append({
+                'fila': first_row_num, 'hoja': 'compras',
+                'error': f'Error creando compra {numero}: {str(e)}'
+            })
+
+    logger.info(f"[importacion][compras] resultado: importados={imported}, errores={len(errors)}")
+    print(f"[importacion][compras] resultado: importados={imported}, errores={len(errors)}")
+
+    return imported, errors
+
+
+def _import_activos_fijos(df, empresa, usuario=None):
+    """Import activos fijos from DataFrame.
+    Auto-creates missing clasificaciones, ubicaciones, centros de costo."""
+    from apps.activos_fijos.models import (
+        ActivoFijo, ClasificacionActivo, UbicacionActivo, CentroCosto,
+    )
+
+    print(f"[importacion][activos_fijos] Iniciando import de {len(df)} filas")
+    logger.info(f"[importacion][activos_fijos] Iniciando import de {len(df)} filas")
+
+    imported = 0
+    errors = []
+
+    # Caches
+    clasif_cache = {}
+    for c in ClasificacionActivo.objects.filter(empresa=empresa):
+        clasif_cache[c.nombre.lower()] = c
+
+    ubic_cache = {}
+    for u in UbicacionActivo.objects.filter(empresa=empresa):
+        key = f"{u.planta}|{u.edificio}|{u.area}".lower()
+        ubic_cache[key] = u
+
+    cc_cache = {}
+    for cc in CentroCosto.objects.filter(empresa=empresa):
+        cc_cache[cc.codigo.lower()] = cc
+
+    existing_codigos = set(
+        ActivoFijo.objects.filter(empresa=empresa).values_list('codigo', flat=True)
+    )
+
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        try:
+            codigo = str(row.get('codigo', '')).strip()
+            if not codigo:
+                errors.append({'fila': row_num, 'hoja': 'activos_fijos', 'error': 'codigo vacío'})
+                continue
+            if codigo in existing_codigos:
+                errors.append({'fila': row_num, 'hoja': 'activos_fijos', 'error': f'Código duplicado: {codigo}'})
+                continue
+
+            nombre = str(row.get('nombre', '')).strip()
+            if not nombre:
+                errors.append({'fila': row_num, 'hoja': 'activos_fijos', 'error': 'nombre vacío'})
+                continue
+
+            tipo_raw = str(row.get('tipo', 'otro')).strip() if pd.notna(row.get('tipo')) else 'otro'
+            # Map case-insensitive to exact choices
+            tipo_map = {
+                'it': 'IT', 'planta': 'planta', 'mobiliario': 'mobiliario',
+                'vehiculo': 'vehiculo', 'vehículo': 'vehiculo',
+                'edificio': 'edificio', 'terreno': 'terreno', 'otro': 'otro',
+            }
+            tipo = tipo_map.get(tipo_raw.lower(), 'otro')
+
+            try:
+                raw_val = row.get('valor_adquisicion', 0)
+                valor_adq = Decimal(str(raw_val).replace(',', '.')) if pd.notna(raw_val) else Decimal('0')
+                if not valor_adq.is_finite():
+                    raise ValueError()
+            except Exception:
+                errors.append({'fila': row_num, 'hoja': 'activos_fijos', 'error': 'valor_adquisicion inválido'})
+                continue
+
+            try:
+                raw_res = row.get('valor_residual', 0)
+                valor_residual = Decimal(str(raw_res).replace(',', '.')) if pd.notna(raw_res) else Decimal('0')
+                if not valor_residual.is_finite():
+                    valor_residual = Decimal('0')
+            except Exception:
+                valor_residual = Decimal('0')
+
+            try:
+                raw_vida = row.get('vida_util_anios', 5)
+                vida_util = int(Decimal(str(raw_vida).replace(',', '.'))) if pd.notna(raw_vida) else 5
+            except Exception:
+                vida_util = 5
+
+            try:
+                fecha_val = row.get('fecha_adquisicion')
+                if isinstance(fecha_val, datetime):
+                    fecha_adq = fecha_val.date()
+                else:
+                    fecha_adq = pd.to_datetime(str(fecha_val)).date()
+            except Exception:
+                errors.append({'fila': row_num, 'hoja': 'activos_fijos', 'error': 'fecha_adquisicion inválida'})
+                continue
+
+            moneda = str(row.get('moneda', 'PYG')).strip().upper() if pd.notna(row.get('moneda')) else 'PYG'
+            if moneda not in ('PYG', 'USD'):
+                moneda = 'PYG'
+
+            descripcion = str(row.get('descripcion', '')).strip() if pd.notna(row.get('descripcion')) else ''
+            numero_serie = str(row.get('numero_serie', '')).strip() if pd.notna(row.get('numero_serie')) else ''
+            numero_factura = str(row.get('numero_factura', '')).strip() if pd.notna(row.get('numero_factura')) else ''
+
+            # Propiedad de terceros
+            terceros = row.get('propiedad_terceros', False)
+            if isinstance(terceros, str):
+                propiedad_terceros = terceros.strip().lower() in ('si', 'sí', 'true', '1', 'yes')
+            elif isinstance(terceros, bool):
+                propiedad_terceros = terceros
+            else:
+                propiedad_terceros = bool(terceros) if pd.notna(terceros) else False
+
+            # Auto-crear clasificación
+            clasificacion_obj = None
+            clasif_nombre = str(row.get('clasificacion', '')).strip() if pd.notna(row.get('clasificacion')) else ''
+            if clasif_nombre:
+                key = clasif_nombre.lower()
+                if key not in clasif_cache:
+                    nuevo = ClasificacionActivo.objects.create(
+                        empresa=empresa,
+                        nombre=clasif_nombre,
+                        descripcion=f"Auto-creada desde importación",
+                        vida_util_default=vida_util,
+                    )
+                    clasif_cache[key] = nuevo
+                    logger.info(f"[importacion][af] Auto-creada clasificación: {clasif_nombre}")
+                clasificacion_obj = clasif_cache[key]
+
+            # Auto-crear ubicación
+            ubicacion_obj = None
+            ub_planta = str(row.get('ubicacion_planta', '')).strip() if pd.notna(row.get('ubicacion_planta')) else ''
+            ub_edificio = str(row.get('ubicacion_edificio', '')).strip() if pd.notna(row.get('ubicacion_edificio')) else ''
+            ub_area = str(row.get('ubicacion_area', '')).strip() if pd.notna(row.get('ubicacion_area')) else ''
+            if ub_planta:
+                ub_key = f"{ub_planta}|{ub_edificio}|{ub_area}".lower()
+                if ub_key not in ubic_cache:
+                    nueva_ub = UbicacionActivo.objects.create(
+                        empresa=empresa,
+                        planta=ub_planta,
+                        edificio=ub_edificio or '-',
+                        area=ub_area or '-',
+                    )
+                    ubic_cache[ub_key] = nueva_ub
+                    logger.info(f"[importacion][af] Auto-creada ubicación: {ub_planta}/{ub_edificio}/{ub_area}")
+                ubicacion_obj = ubic_cache[ub_key]
+
+            # Auto-crear centro de costo
+            cc_obj = None
+            cc_codigo = str(row.get('centro_costo_codigo', '')).strip() if pd.notna(row.get('centro_costo_codigo')) else ''
+            if cc_codigo:
+                cc_key = cc_codigo.lower()
+                if cc_key not in cc_cache:
+                    cc_desc = str(row.get('centro_costo_descripcion', cc_codigo)).strip() if pd.notna(row.get('centro_costo_descripcion')) else cc_codigo
+                    nuevo_cc = CentroCosto.objects.create(
+                        empresa=empresa,
+                        codigo=cc_codigo,
+                        descripcion=cc_desc,
+                    )
+                    cc_cache[cc_key] = nuevo_cc
+                    logger.info(f"[importacion][af] Auto-creado centro de costo: {cc_codigo}")
+                cc_obj = cc_cache[cc_key]
+
+            with transaction.atomic():
+                activo = ActivoFijo.objects.create(
+                    empresa=empresa,
+                    codigo=codigo,
+                    nombre=nombre,
+                    tipo=tipo,
+                    descripcion=descripcion,
+                    moneda=moneda,
+                    valor_adquisicion=valor_adq,
+                    valor_residual=valor_residual,
+                    vida_util_anios=vida_util,
+                    fecha_adquisicion=fecha_adq,
+                    clasificacion=clasificacion_obj,
+                    ubicacion=ubicacion_obj,
+                    centro_costo=cc_obj,
+                    numero_serie=numero_serie,
+                    numero_factura=numero_factura,
+                    propiedad_terceros=propiedad_terceros,
+                    estado='activo',
+                )
+                existing_codigos.add(codigo)
+                imported += 1
+
+        except Exception as e:
+            errors.append({
+                'fila': row_num, 'hoja': 'activos_fijos',
+                'error': f'Error creando activo: {str(e)}'
+            })
+
+    logger.info(f"[importacion][activos_fijos] resultado: importados={imported}, errores={len(errors)}")
+    print(f"[importacion][activos_fijos] resultado: importados={imported}, errores={len(errors)}")
 
     return imported, errors

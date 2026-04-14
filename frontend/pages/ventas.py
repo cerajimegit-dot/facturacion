@@ -9,8 +9,8 @@ def render():
     show_session_notifications()
     st.header("🧾 Ventas")
 
-    tab_ventas, tab_nueva, tab_cxc, tab_nc, tab_cotiz = st.tabs([
-        "📋 Ventas", "➕ Nueva Venta", "💳 Cuentas por Cobrar", "📝 Notas de Crédito", "📄 Cotizaciones"
+    tab_ventas, tab_nueva, tab_rapida, tab_cxc, tab_nc, tab_cotiz = st.tabs([
+        "📋 Ventas", "➕ Nueva Venta", "⚡ Carga Rápida", "💳 Cuentas por Cobrar", "📝 Notas de Crédito", "📄 Cotizaciones"
     ])
 
     # ── Ventas List ───────────────────────────────────────────────────────────
@@ -139,9 +139,17 @@ def render():
                     if lineas:
                         st.write(f"**Lineas actuales:** {len(lineas)}")
                         ldf = pd.DataFrame(lineas)
-                        lcols = [c for c in ["producto_nombre", "cantidad", "precio_unitario", "subtotal", "total"] if c in ldf.columns]
+                        lcols = [c for c in ["producto_nombre", "cantidad", "precio_unitario", "condicion_iva", "subtotal", "impuesto_monto", "total"] if c in ldf.columns]
                         st.dataframe(ldf[lcols] if lcols else ldf, use_container_width=True, hide_index=True)
-                    st.write(f"**Total actual:** {fmt(venta_detail.get('total', 0), '₲ ')}")
+                    
+                    # Mostrar desglose de totales en tiempo real
+                    t1, t2, t3 = st.columns(3)
+                    with t1:
+                        st.metric("Subtotal", fmt(venta_detail.get('subtotal', 0), '₲ '))
+                    with t2:
+                        st.metric("Impuestos", fmt(venta_detail.get('impuestos', 0), '₲ '))
+                    with t3:
+                        st.metric("Total", fmt(venta_detail.get('total', 0), '₲ '))
 
                 with st.form("add_line"):
                     col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
@@ -233,15 +241,19 @@ def render():
                                 if venta_detail:
                                     pago_payload = {
                                         "venta": venta_id,
+                                        "cliente": venta_detail.get("cliente_id") or venta_detail.get("cliente", ""),
                                         "monto": str(venta_detail.get("total", 0)),
-                                        "metodo_pago": metodo_pago,
+                                        "metodo": metodo_pago,
                                         "referencia": referencia_pago,
-                                        "observaciones": obs_pago_confirm,
                                     }
-                                    pago_result, pago_err = api.create_registro_pago(pago_payload)
+                                    pago_result, pago_err = api.create_pago(pago_payload)
                                     if pago_err:
                                         notify_warning(f"Venta confirmada pero error registrando pago: {pago_err}")
                                     else:
+                                        # Auto-confirmar para generar asiento
+                                        pago_id = pago_result.get("id")
+                                        if pago_id:
+                                            api.confirmar_pago(pago_id)
                                         notify_success("Venta confirmada y pagada registrada completamente!")
                             else:
                                 notify_success("Venta confirmada! Se generó la cuenta por cobrar")
@@ -256,6 +268,155 @@ def render():
                     if st.button("🔄 Limpiar", use_container_width=True):
                         st.session_state.pop("venta_nueva_id", None)
                         st.rerun()
+
+    # ── Carga Rápida ─────────────────────────────────────────────────────────
+    with tab_rapida:
+        st.subheader("⚡ Carga Rápida — Venta Confirmada y Pagada")
+        st.info("Crea una venta ya confirmada (y opcionalmente pagada) en un solo paso. Ideal para registrar ventas ya realizadas.")
+        
+        cli_data_r, _ = api.list_clientes()
+        clientes_r = results(cli_data_r)
+        prod_data_r, _ = api.list_productos()
+        productos_r = results(prod_data_r)
+
+        if not clientes_r:
+            st.warning("Necesitas al menos un cliente.")
+        elif not productos_r:
+            st.warning("Necesitas al menos un producto.")
+        else:
+            # Datos de la venta
+            col1, col2 = st.columns(2)
+            with col1:
+                cr_numero = st.text_input("Número de Factura *", placeholder="FAC-001", key="cr_numero")
+                cli_opts_r = {c["id"]: f"{c.get('ruc','')} - {c.get('nombre','')}" for c in clientes_r}
+                cr_cliente = st.selectbox("Cliente *", options=list(cli_opts_r.keys()),
+                                          format_func=lambda x: cli_opts_r[x], key="cr_cliente")
+            with col2:
+                cr_fecha = st.date_input("Fecha *", key="cr_fecha")
+                cr_metodo = st.selectbox("Método de Pago", ["efectivo", "transferencia", "cheque", "tarjeta", ""], key="cr_metodo")
+
+            cr_pagada = st.checkbox("✅ Esta factura ya fue pagada completamente", value=True, key="cr_pagada")
+            
+            if cr_pagada:
+                cr_col1, cr_col2 = st.columns(2)
+                with cr_col1:
+                    cr_referencia = st.text_input("Referencia de Pago", placeholder="Nro. comprobante...", key="cr_ref")
+                with cr_col2:
+                    cr_obs_pago = st.text_input("Observaciones Pago", key="cr_obs_pago")
+            
+            cr_notas = st.text_area("Notas", placeholder="Observaciones...", key="cr_notas")
+            
+            st.divider()
+            st.subheader("Líneas de la Venta")
+            
+            # Session state for lines
+            if "cr_lineas" not in st.session_state:
+                st.session_state["cr_lineas"] = []
+            
+            prod_opts_r = {p["id"]: f"{p.get('sku','')} - {p.get('nombre','')} (₲ {p.get('precio_unitario', 0):,})" for p in productos_r}
+            
+            with st.form("cr_add_line"):
+                lc1, lc2, lc3, lc4 = st.columns([3, 2, 2, 2])
+                with lc1:
+                    cr_prod = st.selectbox("Producto", options=list(prod_opts_r.keys()),
+                                           format_func=lambda x: prod_opts_r[x], key="cr_prod")
+                with lc2:
+                    cr_cant = st.number_input("Cantidad", min_value=1, value=1, step=1, key="cr_cant")
+                with lc3:
+                    cr_precio = st.number_input("Precio Unitario", min_value=0, value=0, step=1000, key="cr_precio")
+                with lc4:
+                    cr_iva = st.selectbox(
+                        "IVA",
+                        options=['gravada_10', 'gravada_5', 'exenta'],
+                        format_func=lambda x: {'gravada_10': '10%', 'gravada_5': '5%', 'exenta': 'Exenta'}[x],
+                        key="cr_iva"
+                    )
+                
+                if st.form_submit_button("➕ Agregar Línea", use_container_width=True):
+                    prod_info = next((p for p in productos_r if p["id"] == cr_prod), {})
+                    precio_final = cr_precio if cr_precio > 0 else float(prod_info.get('precio_unitario', 0))
+                    iva_map = {'gravada_10': 10, 'gravada_5': 5, 'exenta': 0}
+                    tasa = iva_map.get(cr_iva, 10)
+                    subtotal = cr_cant * precio_final
+                    impuesto = subtotal * (tasa / 100)
+                    
+                    st.session_state["cr_lineas"].append({
+                        "producto": cr_prod,
+                        "producto_nombre": prod_info.get('nombre', ''),
+                        "cantidad": cr_cant,
+                        "precio_unitario": precio_final,
+                        "condicion_iva": cr_iva,
+                        "subtotal": subtotal,
+                        "impuesto": impuesto,
+                        "total": subtotal + impuesto,
+                    })
+                    st.rerun()
+            
+            # Show current lines
+            lineas_cr = st.session_state.get("cr_lineas", [])
+            if lineas_cr:
+                ldf = pd.DataFrame(lineas_cr)
+                st.dataframe(
+                    ldf[["producto_nombre", "cantidad", "precio_unitario", "condicion_iva", "subtotal", "impuesto", "total"]],
+                    use_container_width=True, hide_index=True
+                )
+                
+                # Totals
+                total_sub = sum(l["subtotal"] for l in lineas_cr)
+                total_imp = sum(l["impuesto"] for l in lineas_cr)
+                total_tot = sum(l["total"] for l in lineas_cr)
+                
+                t1, t2, t3 = st.columns(3)
+                with t1:
+                    st.metric("Subtotal", fmt(total_sub, '₲ '))
+                with t2:
+                    st.metric("Impuestos", fmt(total_imp, '₲ '))
+                with t3:
+                    st.metric("Total", fmt(total_tot, '₲ '))
+                
+                col_submit, col_clear_lines = st.columns(2)
+                with col_submit:
+                    if st.button("✅ Registrar Venta", type="primary", use_container_width=True, key="cr_submit"):
+                        if not cr_numero:
+                            notify_error("El número de factura es obligatorio")
+                        else:
+                            payload = {
+                                "numero": cr_numero,
+                                "cliente": cr_cliente,
+                                "fecha": str(cr_fecha),
+                                "metodo_pago": cr_metodo,
+                                "notas": cr_notas,
+                                "esta_pagada": cr_pagada,
+                                "referencia_pago": cr_referencia if cr_pagada else "",
+                                "observaciones_pago": cr_obs_pago if cr_pagada else "",
+                                "lineas": [
+                                    {
+                                        "producto": l["producto"],
+                                        "cantidad": l["cantidad"],
+                                        "precio_unitario": str(l["precio_unitario"]),
+                                        "condicion_iva": l["condicion_iva"],
+                                    }
+                                    for l in lineas_cr
+                                ],
+                            }
+                            result, err = api.carga_rapida_venta(payload)
+                            if err:
+                                notify_error(f"Error al registrar venta", {"error": str(err)})
+                            else:
+                                estado_final = "pagada" if cr_pagada else "confirmada"
+                                notify_success(f"Venta **{cr_numero}** registrada como {estado_final}")
+                                st.session_state["cr_lineas"] = []
+                                st.cache_data.clear()
+                                st.cache_resource.clear()
+                                import time
+                                time.sleep(0.5)
+                                st.rerun()
+                with col_clear_lines:
+                    if st.button("🗑️ Limpiar Líneas", use_container_width=True, key="cr_clear"):
+                        st.session_state["cr_lineas"] = []
+                        st.rerun()
+            else:
+                st.info("Agrega al menos una línea para registrar la venta.")
 
     # ── Cuentas por Cobrar ────────────────────────────────────────────────────
     with tab_cxc:

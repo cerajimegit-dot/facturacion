@@ -3,14 +3,30 @@ from rest_framework import serializers
 from .models import (
     ClasificacionActivo, UbicacionActivo, CentroCosto,
     ActivoFijo, MovimientoActivo, MantenimientoActivo,
-    BajaActivo, DepreciacionMensual,
+    BajaActivo, DepreciacionMensual, ProcesoDepreciacion,
 )
 
 
 class ClasificacionActivoSerializer(serializers.ModelSerializer):
+    cuenta_activo_nombre = serializers.CharField(
+        source='cuenta_activo.descripcion', read_only=True, allow_null=True)
+    cuenta_depreciacion_acumulada_nombre = serializers.CharField(
+        source='cuenta_depreciacion_acumulada.descripcion', read_only=True, allow_null=True)
+    cuenta_gasto_depreciacion_nombre = serializers.CharField(
+        source='cuenta_gasto_depreciacion.descripcion', read_only=True, allow_null=True)
+    cuenta_resultado_baja_nombre = serializers.CharField(
+        source='cuenta_resultado_baja.descripcion', read_only=True, allow_null=True)
+
     class Meta:
         model = ClasificacionActivo
-        fields = ['id', 'nombre', 'descripcion', 'vida_util_default', 'created_at', 'updated_at']
+        fields = [
+            'id', 'nombre', 'descripcion', 'vida_util_default',
+            'cuenta_activo', 'cuenta_activo_nombre',
+            'cuenta_depreciacion_acumulada', 'cuenta_depreciacion_acumulada_nombre',
+            'cuenta_gasto_depreciacion', 'cuenta_gasto_depreciacion_nombre',
+            'cuenta_resultado_baja', 'cuenta_resultado_baja_nombre',
+            'created_at', 'updated_at',
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
@@ -53,12 +69,15 @@ class ActivoFijoSerializer(serializers.ModelSerializer):
             'clasificacion', 'clasificacion_nombre',
             'ubicacion', 'ubicacion_nombre',
             'centro_costo', 'centro_costo_nombre',
+            'moneda',
             'valor_adquisicion', 'valor_residual',
             'fecha_adquisicion', 'fecha_activacion',
             'vida_util_anios', 'estado',
             'proveedor', 'proveedor_nombre',
             'responsable', 'responsable_nombre',
             'numero_serie', 'numero_factura', 'imagen', 'notas',
+            'propiedad_terceros',
+            'cuenta_activo', 'cuenta_depreciacion_acumulada', 'cuenta_gasto_depreciacion',
             'depreciacion_acumulada', 'valor_libro',
             'depreciacion_mensual', 'depreciacion_anual',
             'porcentaje_depreciado', 'vida_util_restante_meses',
@@ -173,3 +192,15 @@ class DepreciacionMensualSerializer(serializers.ModelSerializer):
             'depreciacion_acumulada', 'valor_libro',
         ]
         read_only_fields = ['id']
+
+
+class ProcesoDepreciacionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProcesoDepreciacion
+        fields = [
+            'id', 'anio', 'mes', 'estado',
+            'activos_procesados', 'activos_con_error', 'registros_creados',
+            'asiento', 'usuario', 'notas',
+            'fecha_inicio', 'fecha_fin', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']

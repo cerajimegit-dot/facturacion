@@ -1,0 +1,87 @@
+Voy a re-clonar y verificar contra el código actual.
+Tenés razón, Leti. Hay dos commits nuevos (c4c5e91 y 15484cf) que resolvieron todo. Contabilidad está activa, las FKs de cuenta_contable existen, y ya hay un módulo apps/activos_fijos/ implementado. Dejame analizarlo.
+Leti, tenés razón — mis observaciones anteriores están resueltas. Contabilidad está en INSTALLED_APPS, tiene URL, migración, y las FKs cuenta_contable existen en Proveedor y Producto. Además ya hay un módulo apps/activos_fijos/ completo implementado.
+Ahora sí, el análisis que pediste — ¿es compatible el módulo de activos fijos con el sistema?
+VEREDICTO: Técnicamente compatible, funcionalmente incompleto
+Lo que SÍ está bien integrado
+El módulo sigue correctamente todos los patrones del sistema: hereda de TenantModel, usa TenantManager, TenantQuerySetMixin, permisos IsEmpresaMember, UUIDs, DefaultRouter, select_related en querysets. La lógica de negocio está extraída a ActivoFijoService (mejor patrón que las views de ventas/pagos donde todo está en el ViewSet). Los controles son buenos: no se puede eliminar un activo depreciado, no se puede modificar el valor de adquisición post-activación, no se puede dar baja con mantenimientos pendientes.
+Lo que falta (brechas vs. la spec)
+1. Sin integración contable (CRÍTICO). El módulo de contabilidad existe y está activo, pero el módulo de activos fijos no genera ningún asiento. La depreciación mensual crea registros en DepreciacionMensual y actualiza depreciacion_acumulada en el activo, pero no toca Asiento ni LineaAsiento. Lo mismo para altas y bajas. Es registro operativo sin impacto contable.
+2. Sin cuentas contables. El modelo ActivoFijo no tiene FK a PlanCuentas. No hay cuenta de activo, cuenta de depreciación acumulada, ni cuenta de gasto. La ClasificacionActivo tampoco tiene cuentas por defecto. Sin esto, aunque quisieras generar asientos, no sabés a qué cuentas imputar.
+3. Sin vidas útiles fiscales paraguayas. La ClasificacionActivo tiene vida_util_default como integer genérico. No refleja las tasas del Decreto 3182/19 ni distingue fiscal vs. contable.
+4. Sin distinción fiscal/contable. Solo hay una depreciacion_acumulada. Para una subsidiaria que reporta IFRS al grupo, necesitás dos tracks paralelos (fiscal para la SET, contable para consolidación IFRS).
+5. Sin control de secuencialidad. Podés ejecutar depreciación de junio sin haber ejecutado mayo. Esto genera huecos.
+6. Sin moneda. El modelo no tiene campo moneda ni tipo de cambio. Todo se asume PYG.
+7. Sin flag de propiedad de terceros. Para maquila, bienes en admisión temporaria no deberían depreciar ni ir al balance.
+8. Sin ProcesoDepreciacion. No hay tabla de control del batch. Si la depreciación falla a mitad de proceso, no hay forma de saber qué activos se procesaron y cuáles no.
+9. Tests vacíos. El archivo tests.py tiene 3 líneas (probablemente solo el import).
+Lo que tiene y la spec no contemplaba (bueno)
+MantenimientoActivo — la spec original no incluía un modelo de mantenimiento con estados (programado → en_proceso → completado) y su vínculo con el estado del activo. Es un buen agregado funcional.
+UbicacionActivo como modelo propio — en lugar de un CharField, hay un modelo normalizado con planta/edificio/área. Mejor para reportes y filtros.
+CentroCosto como modelo propio — lo mismo, normalizado en lugar de un string libre.
+RESUMEN DE BRECHAS
+Elemento
+Spec
+Implementado
+Gap
+Modelo base (CRUD, estados)
+✓
+✓
+—
+Depreciación lineal
+✓
+✓
+—
+Bajas con motivos
+✓
+✓
+—
+Movimientos/transferencias
+✓
+✓
+—
+Mantenimientos
+✗
+✓
+Bonus
+Cuentas contables en categoría/activo
+✓
+✗
+Crítico
+Generación de asientos
+✓
+✗
+Crítico
+Doble track fiscal/contable
+✓
+✗
+Importante
+Vidas útiles Decreto 3182/19
+✓
+✗
+Importante
+Moneda y tipo de cambio
+✓
+✗
+Importante
+ProcesoDepreciacion (control batch)
+✓
+✗
+Medio
+Secuencialidad de períodos
+✓
+✗
+Medio
+Flag propiedad terceros (maquila)
+✓
+✗
+Medio
+Mejoras/capitalizaciones
+✓
+✗
+Medio
+Exportación Excel reportes
+✓
+✗
+Bajo
+En resumen: el módulo implementado cubre la gestión operativa (qué activos tengo, dónde están, quién los tiene, cuánto se depreciaron). Pero le falta la capa contable-fiscal que es justamente lo que diferencia un registro de activos de un módulo de activos fijos contable.

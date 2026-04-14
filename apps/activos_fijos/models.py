@@ -17,6 +17,28 @@ class ClasificacionActivo(TenantModel):
         default=5, help_text='Vida útil por defecto en años para esta clasificación'
     )
 
+    # Cuentas contables por defecto para esta clasificación
+    cuenta_activo = models.ForeignKey(
+        'contabilidad.PlanCuentas', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='clasificaciones_activo',
+        help_text='Cuenta de Activo Fijo (ej: 1.02.01)',
+    )
+    cuenta_depreciacion_acumulada = models.ForeignKey(
+        'contabilidad.PlanCuentas', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='clasificaciones_dep_acum',
+        help_text='Cuenta de Depreciación Acumulada (ej: 1.02.09)',
+    )
+    cuenta_gasto_depreciacion = models.ForeignKey(
+        'contabilidad.PlanCuentas', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='clasificaciones_gasto_dep',
+        help_text='Cuenta de Gasto por Depreciación (ej: 5.01.04)',
+    )
+    cuenta_resultado_baja = models.ForeignKey(
+        'contabilidad.PlanCuentas', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='clasificaciones_res_baja',
+        help_text='Cuenta de Resultado por Baja (ej: 4.02.01)',
+    )
+
     objects = TenantManager()
 
     class Meta:
@@ -89,6 +111,10 @@ class ActivoFijo(TenantModel):
         ('en_mantenimiento', 'En Mantenimiento'),
         ('baja', 'Dado de Baja'),
     ]
+    MONEDA_CHOICES = [
+        ('PYG', 'Guaraní'),
+        ('USD', 'Dólar'),
+    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     codigo = models.CharField(max_length=50, db_index=True)
@@ -107,6 +133,7 @@ class ActivoFijo(TenantModel):
         CentroCosto, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='activos',
     )
+    moneda = models.CharField(max_length=3, choices=MONEDA_CHOICES, default='PYG')
     valor_adquisicion = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     valor_residual = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
@@ -131,6 +158,27 @@ class ActivoFijo(TenantModel):
     numero_factura = models.CharField(max_length=50, blank=True, default='')
     imagen = models.ImageField(upload_to='activos_fijos/', blank=True, null=True)
     notas = models.TextField(blank=True, default='')
+    propiedad_terceros = models.BooleanField(
+        default=False,
+        help_text='Bienes en admisión temporaria/maquila — no deprecian ni van al balance',
+    )
+
+    # Cuentas contables (override de la clasificación)
+    cuenta_activo = models.ForeignKey(
+        'contabilidad.PlanCuentas', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='activos_fijos_cuenta',
+        help_text='Override: Cuenta de Activo Fijo',
+    )
+    cuenta_depreciacion_acumulada = models.ForeignKey(
+        'contabilidad.PlanCuentas', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='activos_fijos_dep_acum',
+        help_text='Override: Cuenta de Depreciación Acumulada',
+    )
+    cuenta_gasto_depreciacion = models.ForeignKey(
+        'contabilidad.PlanCuentas', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='activos_fijos_gasto_dep',
+        help_text='Override: Cuenta de Gasto por Depreciación',
+    )
 
     # Campos calculados de depreciación
     depreciacion_acumulada = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -152,6 +200,24 @@ class ActivoFijo(TenantModel):
             self.fecha_activacion = self.fecha_adquisicion
         self.valor_libro = self.valor_adquisicion - self.depreciacion_acumulada
         super().save(*args, **kwargs)
+
+    def get_cuenta_activo(self):
+        """Cuenta de activo: override del activo > default de clasificación."""
+        return self.cuenta_activo or (self.clasificacion.cuenta_activo if self.clasificacion else None)
+
+    def get_cuenta_dep_acumulada(self):
+        """Cuenta de dep. acumulada: override del activo > default de clasificación."""
+        return self.cuenta_depreciacion_acumulada or (
+            self.clasificacion.cuenta_depreciacion_acumulada if self.clasificacion else None)
+
+    def get_cuenta_gasto_dep(self):
+        """Cuenta de gasto depreciación: override del activo > default de clasificación."""
+        return self.cuenta_gasto_depreciacion or (
+            self.clasificacion.cuenta_gasto_depreciacion if self.clasificacion else None)
+
+    def get_cuenta_resultado_baja(self):
+        """Cuenta de resultado por baja: solo de clasificación."""
+        return self.clasificacion.cuenta_resultado_baja if self.clasificacion else None
 
     @property
     def depreciacion_mensual(self):
@@ -350,3 +416,43 @@ class DepreciacionMensual(TenantModel):
 
     def __str__(self):
         return f"{self.activo.codigo} - {self.anio}/{self.mes:02d}: {self.monto}"
+
+
+class ProcesoDepreciacion(TenantModel):
+    """Control de ejecución del batch de depreciación mensual."""
+    ESTADO_CHOICES = [
+        ('en_proceso', 'En Proceso'),
+        ('completado', 'Completado'),
+        ('error', 'Error'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    anio = models.PositiveIntegerField()
+    mes = models.PositiveIntegerField()
+    estado = models.CharField(max_length=15, choices=ESTADO_CHOICES, default='en_proceso')
+    activos_procesados = models.PositiveIntegerField(default=0)
+    activos_con_error = models.PositiveIntegerField(default=0)
+    registros_creados = models.PositiveIntegerField(default=0)
+    asiento = models.OneToOneField(
+        'contabilidad.Asiento', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='proceso_depreciacion',
+        help_text='Asiento contable generado por este proceso',
+    )
+    usuario = models.ForeignKey(
+        'usuarios.Usuario', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='procesos_depreciacion',
+    )
+    notas = models.TextField(blank=True, default='')
+    fecha_inicio = models.DateTimeField(auto_now_add=True)
+    fecha_fin = models.DateTimeField(null=True, blank=True)
+
+    objects = TenantManager()
+
+    class Meta:
+        ordering = ['-anio', '-mes']
+        verbose_name = 'Proceso de Depreciación'
+        verbose_name_plural = 'Procesos de Depreciación'
+        unique_together = ('empresa', 'anio', 'mes')
+
+    def __str__(self):
+        return f"Depreciación {self.mes:02d}/{self.anio} — {self.estado}"

@@ -80,7 +80,7 @@ class VentaListSerializer(serializers.ModelSerializer):
         model = Venta
         fields = [
             'id', 'numero', 'cliente_nombre', 'fecha',
-            'estado', 'total', 'saldo_pendiente', 'moneda',
+            'estado', 'subtotal', 'impuestos', 'total', 'saldo_pendiente', 'moneda',
         ]
 
 

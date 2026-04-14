@@ -85,8 +85,8 @@ class VentaViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
     ordering_fields = ['fecha', 'numero', 'total']
 
     def get_serializer_class(self):
-        if self.action == 'list':
-            return VentaListSerializer
+        if self.action == 'list' and 'detail' not in self.request.query_params:
+            return VentaSerializer
         return VentaSerializer
 
     def update(self, request, *args, **kwargs):
@@ -158,6 +158,111 @@ class VentaViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(VentaSerializer(venta).data)
+
+    @action(detail=False, methods=['post'])
+    def carga_rapida(self, request):
+        """Crear venta completa en un solo paso: datos + líneas + confirmar + pago opcional.
+        
+        Payload:
+        {
+            "numero": "FAC-001",
+            "cliente": "<uuid>",
+            "fecha": "2025-01-15",
+            "metodo_pago": "efectivo",
+            "notas": "",
+            "esta_pagada": true,
+            "lineas": [
+                {"producto": "<uuid>", "cantidad": 2, "precio_unitario": 100000, "condicion_iva": "gravada_10"},
+                ...
+            ]
+        }
+        """
+        data = request.data
+        empresa_id = request.query_params.get('empresa') or data.get('empresa')
+        
+        if not empresa_id:
+            return Response({'detail': 'Empresa requerida.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        lineas_data = data.get('lineas', [])
+        if not lineas_data:
+            return Response({'detail': 'Se requiere al menos una línea.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        esta_pagada = data.get('esta_pagada', False)
+        metodo_pago_confirm = data.get('metodo_pago', 'efectivo')
+        referencia_pago = data.get('referencia_pago', '')
+        observaciones_pago = data.get('observaciones_pago', '')
+
+        try:
+            with transaction.atomic():
+                # 1. Crear venta en borrador
+                venta = Venta.objects.create(
+                    empresa_id=empresa_id,
+                    numero=data.get('numero', ''),
+                    cliente_id=data.get('cliente'),
+                    fecha=data.get('fecha'),
+                    metodo_pago=data.get('metodo_pago', ''),
+                    notas=data.get('notas', ''),
+                )
+                
+                # 2. Agregar líneas
+                for linea_data in lineas_data:
+                    LineaVenta.objects.create(
+                        venta=venta,
+                        empresa_id=empresa_id,
+                        producto_id=linea_data.get('producto'),
+                        cantidad=linea_data.get('cantidad', 1),
+                        precio_unitario=linea_data.get('precio_unitario', 0),
+                        condicion_iva=linea_data.get('condicion_iva', 'gravada_10'),
+                    )
+                
+                # 3. Recalcular totales
+                venta.recalcular_totales()
+                
+                # 4. Confirmar venta (stock, CxC, asiento)
+                VentaService.confirmar_venta(venta, usuario=request.user)
+                
+                # 5. Si está pagada, registrar pago y actualizar saldos
+                if esta_pagada:
+                    from decimal import Decimal
+                    # Usar Pago (módulo pagos) que tiene workflow completo y genera asientos
+                    from apps.pagos.models import Pago
+                    from apps.contabilidad.services import ContabilidadService
+                    from apps.ventas.models import CuentaPorCobrar
+                    
+                    pago_obj = Pago.objects.create(
+                        empresa_id=empresa_id,
+                        venta=venta,
+                        cliente=venta.cliente,
+                        fecha=venta.fecha,
+                        monto=venta.total,
+                        moneda=venta.moneda,
+                        metodo=metodo_pago_confirm or 'efectivo',
+                        referencia=referencia_pago or '',
+                        estado='confirmado',
+                    )
+                    
+                    # Actualizar venta como pagada
+                    venta.total_pagado = venta.total
+                    venta.saldo_pendiente = Decimal('0')
+                    venta.estado = 'pagada'
+                    venta.save(update_fields=['total_pagado', 'saldo_pendiente', 'estado'])
+                    
+                    # Actualizar CxC como pagada
+                    CuentaPorCobrar.objects.filter(venta=venta).update(
+                        monto_pagado=venta.total, saldo=Decimal('0'), estado='pagada'
+                    )
+                    
+                    # Generar asiento de cobro
+                    ContabilidadService.generar_asiento_pago(pago_obj, request.user)
+                    ContabilidadService.generar_asiento_pago(pago_obj, request.user)
+                
+                venta.refresh_from_db()
+                return Response(VentaSerializer(venta).data, status=status.HTTP_201_CREATED)
+                
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'detail': f'Error: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CuentaPorCobrarViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):

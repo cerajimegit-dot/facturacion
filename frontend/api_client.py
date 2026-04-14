@@ -327,6 +327,13 @@ def agregar_linea_venta(venta_id: str, data: dict):
     return _handle(resp)
 
 
+def carga_rapida_venta(data: dict):
+    """Crear venta completa en un solo paso: datos + líneas + confirmar + pago opcional."""
+    data.update(_empresa_param())
+    resp = requests.post(f"{API_BASE}/ventas/carga_rapida/", json=data, headers=_headers(), params=_empresa_param())
+    return _handle(resp)
+
+
 # ── Cotizaciones ──────────────────────────────────────────────────────────────
 
 def list_cotizaciones():
@@ -967,4 +974,17 @@ def get_reporte_depreciacion(anio: str = "", mes: str = ""):
         params["mes"] = mes
     resp = requests.get(f"{API_BASE}/activos-fijos/depreciaciones/reporte/", headers=_headers(), params=params)
     return _handle(resp)
+
+
+# Procesos de depreciación
+def list_procesos_depreciacion():
+    return _fetch_all(f"{API_BASE}/activos-fijos/procesos-depreciacion/", params=_empresa_param())
+
+
+# Cuentas contables (para selectores en clasificaciones y activos)
+def list_cuentas_contables(search: str = ""):
+    params = _empresa_param()
+    if search:
+        params["search"] = search
+    return _fetch_all(f"{API_BASE}/contabilidad/plan-cuentas/", params=params)
 

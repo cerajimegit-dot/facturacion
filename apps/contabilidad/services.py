@@ -23,6 +23,7 @@ CUENTAS_DEFAULT = {
     'ingresos_ventas': '4110',       # Ingresos por Ventas
     'costo_ventas': '5110',          # Costo de Ventas
     'devoluciones_ventas': '4120',   # Devoluciones sobre Ventas
+    'gastos_operativos': '5200',     # Gastos Operativos (para gastos aprobados)
 }
 
 
@@ -63,6 +64,7 @@ class ContabilidadService:
             'COMPRA': 'AC',
             'NOTA_CREDITO': 'ANC',
             'REVERSION': 'AR',
+            'GASTO': 'AG',
         }
         prefijo = prefijos.get(tipo_asiento, 'A')
         ultimo = Asiento.objects.filter(
@@ -395,3 +397,68 @@ class ContabilidadService:
         asiento.save(update_fields=['estado'])
 
         return reverso
+
+    @staticmethod
+    def generar_asiento_gasto(gasto, usuario=None):
+        """Genera asiento contable al aprobar un gasto.
+
+        Asiento:
+          Débito: Gastos Operativos (5200) o cuenta de la categoría
+          Crédito: Caja (1110) — pago directo
+        """
+        from apps.contabilidad.models import Asiento, LineaAsiento
+
+        empresa = gasto.empresa
+
+        # Cuenta de gasto (buscar en categoría si tiene cuenta asociada, sino default)
+        cuenta_gasto = ContabilidadService._get_cuenta(
+            empresa, CUENTAS_DEFAULT['gastos_operativos']
+        )
+        cuenta_caja = ContabilidadService._get_cuenta(
+            empresa, CUENTAS_DEFAULT['caja']
+        )
+
+        if not cuenta_gasto or not cuenta_caja:
+            return None
+
+        numero = ContabilidadService._get_siguiente_numero(empresa, 'GASTO')
+
+        categoria_nombre = gasto.categoria.nombre if gasto.categoria else 'Sin categoría'
+
+        asiento = Asiento.objects.create(
+            empresa=empresa,
+            numero_asiento=numero,
+            tipo_asiento='GASTO',
+            fecha=gasto.fecha,
+            descripcion=f"Gasto aprobado: {gasto.descripcion} — Cat: {categoria_nombre}",
+            gasto=gasto,
+            moneda=gasto.moneda,
+            total_debe=gasto.monto,
+            total_haber=gasto.monto,
+            estado='registrado',
+            usuario_crea=usuario,
+            usuario_registra=usuario,
+            fecha_registro=timezone.now(),
+        )
+
+        # Débito: Gastos Operativos
+        LineaAsiento.objects.create(
+            empresa=empresa,
+            asiento=asiento,
+            cuenta=cuenta_gasto,
+            debe=gasto.monto,
+            haber=Decimal('0'),
+            observacion=f"Gasto {gasto.descripcion} ({categoria_nombre})",
+        )
+
+        # Crédito: Caja
+        LineaAsiento.objects.create(
+            empresa=empresa,
+            asiento=asiento,
+            cuenta=cuenta_caja,
+            debe=Decimal('0'),
+            haber=gasto.monto,
+            observacion=f"Pago gasto: {gasto.comprobante or gasto.descripcion}",
+        )
+
+        return asiento

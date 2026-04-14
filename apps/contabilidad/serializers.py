@@ -74,11 +74,19 @@ class AsientoDetailedSerializer(serializers.ModelSerializer):
         allow_null=True
     )
     
+    venta_numero = serializers.CharField(source='venta.numero', read_only=True, allow_null=True)
+    cliente_nombre = serializers.CharField(
+        source='venta.cliente.nombre',
+        read_only=True,
+        allow_null=True
+    )
+    
     class Meta:
         model = Asiento
         fields = [
             'id', 'numero_asiento', 'tipo_asiento', 'fecha', 'descripcion',
             'compra', 'compra_numero', 'proveedor_nombre',
+            'venta', 'venta_numero', 'cliente_nombre',
             'moneda', 'total_debe', 'total_haber', 'estado',
             'usuario_crea', 'usuario_crea_nombre',
             'usuario_registra', 'usuario_registra_nombre',
@@ -94,12 +102,13 @@ class AsientoListSerializer(serializers.ModelSerializer):
     """Serializer simplificado para listas de asientos."""
     
     compra_numero = serializers.CharField(source='compra.numero', read_only=True, allow_null=True)
+    venta_numero = serializers.CharField(source='venta.numero', read_only=True, allow_null=True)
     
     class Meta:
         model = Asiento
         fields = [
             'id', 'numero_asiento', 'tipo_asiento', 'fecha',
-            'compra_numero', 'moneda', 'total_debe', 'total_haber',
+            'compra_numero', 'venta_numero', 'moneda', 'total_debe', 'total_haber',
             'estado', 'created_at'
         ]
 

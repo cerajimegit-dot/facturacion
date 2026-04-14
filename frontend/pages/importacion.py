@@ -24,27 +24,117 @@ def render():
     with tab_upload:
         st.info("✅ **La empresa se usa automáticamente** de tu selección actual. No necesitas incluir empresa_codigo en el archivo Excel.")
         
-        st.markdown("""
-        ### Columnas Requeridas (Mínimo)
-        - **Clientes:** `nombre`, `ruc`
-        - **Productos:** `sku`, `nombre`, `precio_unitario`
-        - **Stock:** `sku`, `almacen_codigo`, `cantidad`
-        - **Ventas:** `numero`, `fecha`, `cliente_ruc`, `sku`, `cantidad`, `precio_unitario`
-        
-        ### Columnas Opcionales (Adicionales)
-        - **Clientes:** `telefono`, `email`, `direccion_facturacion`, `direccion_entrega`, `tipo_cliente`, `sector`, `zona`, `observaciones`
-        - **Productos:** `descripcion`, `categoria`, `variante`, `costo`, `imagen_url`
-        - **Stock:** `ubicacion`
-        - **Ventas:** `impuestos`, `estado`, `metodo_pago`
-        
-        ### Tipos de Archivo
-        - **Individual:** archivo Excel con una hoja (clientes, productos, stock o ventas)
-        - **Mixto:** archivo Excel con múltiples hojas: `clientes`, `productos`, `stock`, `ventas`
-        """)
+        with st.expander("📖 **Guía de Plantillas por Tipo de Importación**", expanded=False):
+            st.markdown("""
+#### 📌 Clientes
+| Columna | Obligatoria | Descripción |
+|---------|:-----------:|-------------|
+| `nombre` | ✅ | Razón social o nombre del cliente |
+| `ruc` | ✅ | RUC / Cédula del cliente |
+| `telefono` | | Teléfono de contacto |
+| `email` | | Correo electrónico |
+| `direccion_facturacion` | | Dirección para facturación |
+| `direccion_entrega` | | Dirección de entrega |
+| `tipo_cliente` | | persona_fisica / persona_juridica |
+| `sector` | | Sector comercial |
+| `zona` | | Zona geográfica |
+| `observaciones` | | Notas adicionales |
+
+#### 📌 Productos
+| Columna | Obligatoria | Descripción |
+|---------|:-----------:|-------------|
+| `sku` | ✅ | Código único del producto |
+| `nombre` | ✅ | Nombre del producto |
+| `precio_unitario` | ✅ | Precio de venta unitario |
+| `descripcion` | | Descripción del producto |
+| `categoria` | | Categoría del producto |
+| `variante` | | Variante (talle, color, etc.) |
+| `costo` | | Costo unitario |
+| `imagen_url` | | URL de la imagen |
+
+#### 📌 Stock
+| Columna | Obligatoria | Descripción |
+|---------|:-----------:|-------------|
+| `sku` | ✅ | Código del producto |
+| `almacen_codigo` | ✅ | Código del almacén |
+| `cantidad` | ✅ | Cantidad en stock |
+| `ubicacion` | | Ubicación dentro del almacén |
+
+#### 📌 Ventas
+| Columna | Obligatoria | Descripción |
+|---------|:-----------:|-------------|
+| `numero` | ✅ | Número de factura (001-001-0000001) |
+| `fecha` | ✅ | Fecha de la venta |
+| `cliente_ruc` | ✅ | RUC del cliente (se auto-crea si no existe) |
+| `descripcion` | ✅ | Descripción de la línea |
+| `cantidad` | ✅ | Cantidad vendida |
+| `precio_unitario` | ✅ | Precio unitario |
+| `condicion_iva` | | gravada_10 / gravada_5 / exenta (default: gravada_10) |
+| `cliente_nombre` | | Nombre (para auto-crear cliente) |
+| `cliente_telefono` | | Teléfono |
+| `cliente_email` | | Email |
+| `moneda` | | PYG / USD (default: PYG) |
+| `cotizacion_usd` | | Cotización si moneda=USD |
+| `estado` | | confirmada / pagada (default: confirmada) |
+| `metodo_pago` | | efectivo / transferencia / cheque / tarjeta (si estado=pagada) |
+| `referencia_pago` | | Nro. de comprobante del pago |
+| `notas` | | Notas de la venta |
+
+> 💡 Se generan asientos contables automáticamente. Si `estado=pagada`, también se registra el cobro.
+
+#### 📌 Compras
+| Columna | Obligatoria | Descripción |
+|---------|:-----------:|-------------|
+| `numero` | ✅ | Número de factura de compra |
+| `fecha` | ✅ | Fecha de la compra |
+| `proveedor_ruc` | ✅ | RUC del proveedor (se auto-crea si no existe) |
+| `descripcion` | ✅ | Descripción del ítem |
+| `cantidad` | ✅ | Cantidad |
+| `precio_unitario` | ✅ | Precio unitario |
+| `condicion_iva` | | gravada_10 / gravada_5 / exenta (default: gravada_10) |
+| `proveedor_nombre` | | Nombre del proveedor (para auto-crear) |
+| `proveedor_pais` | | País del proveedor (default: Paraguay) |
+| `proveedor_telefono` | | Teléfono del proveedor |
+| `proveedor_email` | | Email del proveedor |
+| `almacen_codigo` | | Código de almacén (default: ALM01, se auto-crea) |
+| `sku` | | SKU del producto (si existe) |
+| `moneda` | | PYG / USD (default: PYG) |
+| `cotizacion_usd` | | Cotización si moneda=USD |
+| `notas` | | Notas de la compra |
+
+> 💡 La compra se marca como recepcionada y genera asiento contable automáticamente.
+
+#### 📌 Activos Fijos
+| Columna | Obligatoria | Descripción |
+|---------|:-----------:|-------------|
+| `codigo` | ✅ | Código único del activo |
+| `nombre` | ✅ | Nombre descriptivo |
+| `tipo` | ✅ | it / planta / mobiliario / vehiculo / edificio / terreno / otro |
+| `valor_adquisicion` | ✅ | Monto de adquisición |
+| `vida_util_anios` | ✅ | Vida útil en años |
+| `fecha_adquisicion` | ✅ | Fecha de adquisición |
+| `valor_residual` | | Valor residual (default: 0) |
+| `descripcion` | | Descripción detallada |
+| `numero_serie` | | Número de serie |
+| `numero_factura` | | Nro. de factura de compra |
+| `moneda` | | PYG / USD (default: PYG) |
+| `clasificacion` | | Nombre de clasificación (se auto-crea) |
+| `ubicacion_planta` | | Planta (se auto-crea ubicación) |
+| `ubicacion_edificio` | | Edificio |
+| `ubicacion_area` | | Área |
+| `centro_costo_codigo` | | Código centro de costo (se auto-crea) |
+| `centro_costo_descripcion` | | Descripción del centro de costo |
+| `propiedad_terceros` | | SI / NO (default: NO) |
+
+> 💡 Clasificaciones, ubicaciones y centros de costo se crean automáticamente si no existen.
+
+#### 📌 Mixto
+Archivo Excel con múltiples hojas. Cada hoja debe llamarse como el tipo: `clientes`, `productos`, `stock`, `ventas`, `compras`, `activos_fijos`.
+            """)
 
         st.divider()
 
-        tipo = st.selectbox("Tipo de Importacion", ["clientes", "productos", "stock", "ventas", "mixto"])
+        tipo = st.selectbox("Tipo de Importacion", ["clientes", "productos", "stock", "ventas", "compras", "activos_fijos", "mixto"])
         archivo = st.file_uploader("Archivo Excel (.xlsx)", type=["xlsx", "xls"],
                                     help="Maximo 50 MB")
 

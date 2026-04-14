@@ -93,18 +93,28 @@ def render():
                         if monto_pago <= 0:
                             notify_error("El monto debe ser mayor a 0")
                         else:
+                            # Crear Pago en módulo pagos (con workflow completo y asiento contable)
                             payload = {
                                 "venta": venta["id"],
+                                "cliente": venta.get("cliente_id") or venta.get("cliente", {}).get("id", ""),
                                 "monto": str(monto_pago),
-                                "metodo_pago": metodo,
+                                "metodo": metodo,
                                 "referencia": referencia,
-                                "observaciones": observaciones,
                             }
-                            result, err = api.create_registro_pago(payload)
+                            result, err = api.create_pago(payload)
                             if err:
                                 notify_error(f"No se pudo registrar el pago", {"error": str(err), "payload": payload})
                             else:
-                                notify_success(f"Pago de ₵ {monto_pago:,} registrado correctamente")
+                                # Auto-confirmar para generar asiento contable
+                                pago_id = result.get("id")
+                                if pago_id:
+                                    conf_result, conf_err = api.confirmar_pago(pago_id)
+                                    if conf_err:
+                                        notify_error(f"Pago creado pero no se pudo confirmar", {"error": str(conf_err)})
+                                    else:
+                                        notify_success(f"Pago de ₵ {monto_pago:,} registrado y confirmado")
+                                else:
+                                    notify_success(f"Pago de ₵ {monto_pago:,} registrado correctamente")
                                 st.cache_data.clear()
                                 st.cache_resource.clear()
                                 import time
@@ -164,33 +174,33 @@ def render():
                 key="estado_filter_pagos"
             )
         
-        # Cargar pagos
-        filters = {}
-        if metodo_filter != "todos":
-            filters["metodo_pago"] = metodo_filter
-        
-        data, err = api.list_registro_pagos(**filters)
+        # Cargar pagos (usando módulo Pago con asientos contables)
+        data, err = api.list_pagos()
         if err:
             notify_error("No se pudieron cargar los registros de pago", {"details": str(err)})
         else:
             pagos = results(data) if data else []
+            
+            # Apply filters
+            if metodo_filter != "todos":
+                pagos = [p for p in pagos if p.get("metodo", "") == metodo_filter]
             
             if not pagos:
                 st.info("No hay registros de pago.")
             else:
                 # Filtrar por estado si es necesario
                 if estado_filter != "todos":
-                    pagos = [p for p in pagos if p.get("venta", {}).get("estado") == estado_filter]
+                    pagos = [p for p in pagos if p.get("venta_detalle", {}).get("estado") == estado_filter]
                 
                 # Mostrar tabla
                 df_pagos = pd.DataFrame([
                     {
-                        "Fecha": p.get("fecha_pago", "")[:10],
-                        "Factura": p.get("venta_numero", ""),
+                        "Fecha": p.get("fecha", "")[:10],
+                        "Factura": p.get("venta_detalle", {}).get("numero", p.get("venta_numero", "")),
                         "Monto": fmt(p.get("monto", 0), "₲ "),
-                        "Método": p.get("metodo_pago", "").title(),
+                        "Método": p.get("metodo", "").title(),
+                        "Estado": p.get("estado", "").title(),
                         "Referencia": p.get("referencia", "-"),
-                        "Observaciones": p.get("observaciones", "")[:50] + "..." if len(p.get("observaciones", "")) > 50 else p.get("observaciones", ""),
                     }
                     for p in pagos
                 ])
@@ -200,17 +210,16 @@ def render():
                 
                 # Expandibles para ver detalles
                 st.divider()
+                venta_num_key = lambda p: p.get("venta_detalle", {}).get("numero", p.get("venta_numero", ""))
                 for pago in pagos[:10]:  # Mostrar detalles de últimos 10
-                    with st.expander(f"**{pago['venta_numero']}** - {fmt(pago['monto'], '₲ ')} ({pago['fecha_pago'][:10]})"):
+                    with st.expander(f"**{venta_num_key(pago)}** - {fmt(pago['monto'], '₲ ')} ({pago.get('fecha', '')[:10]})"):
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.write(f"**Factura:** {pago['venta_numero']}")
+                            st.write(f"**Factura:** {venta_num_key(pago)}")
                             st.write(f"**Monto:** {fmt(pago['monto'], '₲ ')}")
-                            st.write(f"**Método:** {pago['metodo_pago'].title()}")
+                            st.write(f"**Método:** {pago.get('metodo', '').title()}")
+                            st.write(f"**Estado:** {pago.get('estado', '').title()}")
                         with col2:
-                            st.write(f"**Fecha:** {pago['fecha_pago'][:10]}")
+                            st.write(f"**Fecha:** {pago.get('fecha', '')[:10]}")
                             if pago.get('referencia'):
                                 st.write(f"**Referencia:** {pago['referencia']}")
-                        
-                        if pago.get('observaciones'):
-                            st.info(f"**Observaciones:** {pago['observaciones']}")

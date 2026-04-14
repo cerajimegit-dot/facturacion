@@ -20,6 +20,8 @@ class ImportJob(TimeStampedModel):
         ('productos', 'Productos'),
         ('stock', 'Stock'),
         ('ventas', 'Ventas'),
+        ('compras', 'Compras'),
+        ('activos_fijos', 'Activos Fijos'),
         ('mixto', 'Mixto (múltiples hojas)'),
     ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

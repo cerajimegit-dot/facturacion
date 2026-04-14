@@ -245,11 +245,19 @@ class GastoViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def aprobar(self, request, pk=None):
-        """Aprobar gasto."""
+        """Aprobar gasto y generar asiento contable."""
         gasto = self.get_object()
         gasto.aprobado = True
         gasto.save()
-        return Response({'status': 'Gasto aprobado'})
+
+        # Generar asiento contable
+        from apps.contabilidad.services import ContabilidadService
+        asiento = ContabilidadService.generar_asiento_gasto(gasto, request.user)
+
+        data = {'status': 'Gasto aprobado'}
+        if asiento:
+            data['asiento'] = asiento.numero_asiento
+        return Response(data)
 
     @action(detail=False, methods=['get'])
     def resumen_categoria(self, request):

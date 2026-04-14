@@ -116,6 +116,79 @@ def generate_ventas(n=5000, n_clientes=1000, n_productos=500):
     return pd.DataFrame(rows[:n])  # Cap at n rows
 
 
+def generate_compras(n=3000, n_proveedores=200, n_productos=500):
+    """Generate n purchase line items grouped into ~n/3 purchases."""
+    rows = []
+    num_compras = n // 3
+    base_date = date.today() - timedelta(days=365)
+
+    for c in range(1, num_compras + 1):
+        prov_idx = random.randint(1, n_proveedores)
+        fecha = base_date + timedelta(days=random.randint(0, 365))
+        n_lineas = random.randint(1, 5)
+        condiciones = ['gravada_10', 'gravada_5', 'exenta']
+
+        for _ in range(n_lineas):
+            prod_idx = random.randint(1, n_productos)
+            precio = random.randint(5000, 3000000)
+            rows.append({
+                'numero': f'COMP-{c:06d}',
+                'fecha': fecha.strftime('%Y-%m-%d'),
+                'proveedor_ruc': f'{90000000 + prov_idx}-{prov_idx % 10}',
+                'proveedor_nombre': f'Proveedor {prov_idx:04d} S.R.L.',
+                'proveedor_pais': 'Paraguay',
+                'descripcion': f'Item compra #{c}-{_+1}',
+                'cantidad': random.randint(1, 50),
+                'precio_unitario': precio,
+                'condicion_iva': random.choice(condiciones),
+                'sku': f'PROD-{prod_idx:05d}',
+                'almacen_codigo': f'ALM{random.randint(1, 3):02d}',
+                'moneda': 'PYG',
+                'notas': f'OC #{c}' if c % 5 == 0 else '',
+            })
+
+    return pd.DataFrame(rows[:n])
+
+
+def generate_activos_fijos(n=200):
+    """Generate n asset rows."""
+    tipos = ['IT', 'planta', 'mobiliario', 'vehiculo', 'edificio', 'terreno', 'otro']
+    clasificaciones = ['Equipos de Oficina', 'Maquinaria Industrial', 'Vehículos',
+                       'Mobiliario', 'Equipos IT', 'Herramientas', 'Edificios']
+    plantas = ['Central', 'Sucursal Norte', 'Sucursal Sur', 'Deposito']
+    edificios = ['Edificio A', 'Edificio B', 'Galpon 1', 'Galpon 2', '']
+    areas = ['Oficina', 'Produccion', 'Almacen', 'Taller', '']
+    rows = []
+
+    for i in range(1, n + 1):
+        tipo = random.choice(tipos)
+        valor = random.randint(500000, 50000000)
+        vida = random.randint(3, 20)
+        fecha = date.today() - timedelta(days=random.randint(30, 1800))
+        rows.append({
+            'codigo': f'AF-{i:05d}',
+            'nombre': f'Activo Fijo {i:04d}',
+            'tipo': tipo,
+            'descripcion': f'Descripción del activo {i}',
+            'valor_adquisicion': valor,
+            'valor_residual': int(valor * 0.1),
+            'vida_util_anios': vida,
+            'fecha_adquisicion': fecha.strftime('%Y-%m-%d'),
+            'moneda': 'PYG',
+            'clasificacion': random.choice(clasificaciones),
+            'ubicacion_planta': random.choice(plantas),
+            'ubicacion_edificio': random.choice(edificios),
+            'ubicacion_area': random.choice(areas),
+            'centro_costo_codigo': f'CC{random.randint(1, 10):03d}',
+            'centro_costo_descripcion': f'Centro de Costo {random.randint(1, 10)}',
+            'numero_serie': f'SN-{random.randint(100000, 999999)}' if i % 3 == 0 else '',
+            'numero_factura': f'FAC-{random.randint(1, 500):06d}' if i % 2 == 0 else '',
+            'propiedad_terceros': 'SI' if i % 20 == 0 else 'NO',
+        })
+
+    return pd.DataFrame(rows)
+
+
 def main():
     print("Generando archivos Excel de ejemplo...")
 
@@ -124,6 +197,8 @@ def main():
     productos_df = generate_productos(500)
     stock_df = generate_stock(500, 3)
     ventas_df = generate_ventas(5000, 1000, 500)
+    compras_df = generate_compras(3000, 200, 500)
+    activos_df = generate_activos_fijos(200)
 
     # Save individual files
     clientes_df.to_excel(os.path.join(OUTPUT_DIR, 'clientes.xlsx'), index=False)
@@ -138,6 +213,12 @@ def main():
     ventas_df.to_excel(os.path.join(OUTPUT_DIR, 'ventas.xlsx'), index=False)
     print(f"  ventas.xlsx: {len(ventas_df)} filas")
 
+    compras_df.to_excel(os.path.join(OUTPUT_DIR, 'compras.xlsx'), index=False)
+    print(f"  compras.xlsx: {len(compras_df)} filas")
+
+    activos_df.to_excel(os.path.join(OUTPUT_DIR, 'activos_fijos.xlsx'), index=False)
+    print(f"  activos_fijos.xlsx: {len(activos_df)} filas")
+
     # Save combined workbook
     combined_path = os.path.join(OUTPUT_DIR, 'importacion_completa.xlsx')
     with pd.ExcelWriter(combined_path, engine='openpyxl') as writer:
@@ -145,7 +226,9 @@ def main():
         productos_df.to_excel(writer, sheet_name='productos', index=False)
         stock_df.to_excel(writer, sheet_name='stock', index=False)
         ventas_df.to_excel(writer, sheet_name='ventas', index=False)
-    print(f"  importacion_completa.xlsx: archivo combinado con 4 hojas")
+        compras_df.to_excel(writer, sheet_name='compras', index=False)
+        activos_df.to_excel(writer, sheet_name='activos_fijos', index=False)
+    print(f"  importacion_completa.xlsx: archivo combinado con 6 hojas")
 
     print(f"\nArchivos generados en: {OUTPUT_DIR}")
     print("Listo!")

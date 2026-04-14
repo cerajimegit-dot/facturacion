@@ -103,16 +103,23 @@ def _render_lista_activos():
 
     for a in activos:
         estado_icon = {"activo": "🟢", "en_mantenimiento": "🟡", "baja": "🔴"}.get(a.get('estado', ''), "⚪")
-        with st.expander(f"{estado_icon} {a['codigo']} — {a['nombre']} | {a.get('tipo', '')} | ₲ {fmt(a.get('valor_libro', 0))}"):
+        moneda_sym = "US$" if a.get('moneda') == 'USD' else "₲"
+        badges = ""
+        if a.get('propiedad_terceros'):
+            badges = " 🏷️ Tercero"
+        with st.expander(f"{estado_icon} {a['codigo']} — {a['nombre']} | {a.get('tipo', '')} | {moneda_sym} {fmt(a.get('valor_libro', 0))}{badges}"):
             c1, c2, c3 = st.columns(3)
             c1.write(f"**Código:** {a['codigo']}")
             c1.write(f"**Tipo:** {a.get('tipo', '-')}")
             c1.write(f"**Estado:** {a.get('estado', '-')}")
+            c1.write(f"**Moneda:** {a.get('moneda', 'PYG')}")
             c2.write(f"**Clasificación:** {a.get('clasificacion_nombre', '-')}")
             c2.write(f"**Ubicación:** {a.get('ubicacion_nombre', '-')}")
             c2.write(f"**Responsable:** {a.get('responsable_nombre', '-')}")
-            c3.write(f"**Valor Adquisición:** ₲ {fmt(a.get('valor_adquisicion', 0))}")
-            c3.write(f"**Valor en Libros:** ₲ {fmt(a.get('valor_libro', 0))}")
+            if a.get('propiedad_terceros'):
+                c2.write("**⚠️ Propiedad de Terceros**")
+            c3.write(f"**Valor Adquisición:** {moneda_sym} {fmt(a.get('valor_adquisicion', 0))}")
+            c3.write(f"**Valor en Libros:** {moneda_sym} {fmt(a.get('valor_libro', 0))}")
             c3.write(f"**Fecha Adquisición:** {a.get('fecha_adquisicion', '-')}")
 
             # Detalle completo
@@ -232,6 +239,8 @@ def _render_nuevo_activo():
             descripcion = st.text_area("Descripción")
 
         with c2:
+            moneda = st.selectbox("Moneda", ["PYG", "USD"],
+                                  format_func=lambda x: {"PYG": "₲ Guaraní", "USD": "$ Dólar"}.get(x, x))
             valor_adquisicion = st.number_input("Valor de Adquisición *", min_value=0, value=0)
             valor_residual = st.number_input("Valor Residual", min_value=0, value=0)
             vida_util = st.number_input("Vida Útil (años)", min_value=1, max_value=100, value=5)
@@ -271,6 +280,7 @@ def _render_nuevo_activo():
         with c6:
             numero_factura = st.text_input("Número de Factura")
 
+        propiedad_terceros = st.checkbox("🏭 Propiedad de terceros (maquila/admisión temporaria — no deprecia)")
         notas = st.text_area("Notas")
 
         submitted = st.form_submit_button("💾 Crear Activo Fijo", type="primary")
@@ -288,12 +298,14 @@ def _render_nuevo_activo():
             "nombre": nombre.strip(),
             "tipo": tipo,
             "descripcion": descripcion,
+            "moneda": moneda,
             "valor_adquisicion": str(valor_adquisicion),
             "valor_residual": str(valor_residual),
             "vida_util_anios": vida_util,
             "fecha_adquisicion": str(fecha_adquisicion),
             "numero_serie": numero_serie,
             "numero_factura": numero_factura,
+            "propiedad_terceros": propiedad_terceros,
             "notas": notas,
         }
         if clasificacion:
@@ -423,8 +435,19 @@ def _render_movimientos():
 def _render_depreciacion():
     st.subheader("📉 Depreciación")
 
+    # Historial de procesos
+    procs_data, _ = api.list_procesos_depreciacion()
+    procs = results(procs_data)
+    if procs:
+        with st.expander("📜 Historial de Procesos de Depreciación"):
+            import pandas as pd
+            df_proc = pd.DataFrame(procs)
+            cols_proc = ['anio', 'mes', 'estado', 'activos_procesados', 'registros_creados', 'fecha_inicio']
+            cols_avail = [c for c in cols_proc if c in df_proc.columns]
+            st.dataframe(df_proc[cols_avail], use_container_width=True)
+
     # Calcular depreciación
-    with st.expander("🔄 Calcular Depreciación Mensual"):
+    with st.expander("🔄 Calcular Depreciación Mensual", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
             anio_dep = st.number_input("Año", min_value=2020, max_value=2050,
@@ -433,12 +456,20 @@ def _render_depreciacion():
             mes_dep = st.number_input("Mes", min_value=1, max_value=12,
                                       value=date.today().month, key="dep_mes")
 
+        # Aviso de secuencialidad
+        st.caption("⚠️ Los períodos deben procesarse en orden. No se puede saltar meses.")
+
         if st.button("📊 Calcular", type="primary"):
             res, err = api.calcular_depreciacion({"anio": anio_dep, "mes": mes_dep})
             if err:
                 notify_error(f"Error: {err}")
             else:
-                notify_success(f"{res.get('mensaje', 'OK')} — {res.get('registros_creados', 0)} registros.")
+                msg = res.get('mensaje', 'OK')
+                registros = res.get('registros_creados', 0)
+                asiento_id = res.get('asiento_id')
+                notify_success(f"{msg} — {registros} registros.")
+                if asiento_id:
+                    st.info(f"📝 Asiento contable generado: #{asiento_id}")
 
     # Reporte
     st.divider()
@@ -491,8 +522,15 @@ def _render_clasificaciones():
         for c in cls_list:
             col1, col2 = st.columns([4, 1])
             col1.write(f"**{c['nombre']}** — Vida útil default: {c.get('vida_util_default', '-')} años")
+            det_parts = []
             if c.get('descripcion'):
-                col1.caption(c['descripcion'])
+                det_parts.append(c['descripcion'])
+            if c.get('cuenta_activo_nombre'):
+                det_parts.append(f"Cta. Activo: {c['cuenta_activo_nombre']}")
+            if c.get('cuenta_gasto_depreciacion_nombre'):
+                det_parts.append(f"Cta. Gasto: {c['cuenta_gasto_depreciacion_nombre']}")
+            if det_parts:
+                col1.caption(" | ".join(det_parts))
             with col2:
                 if st.button("🗑️", key=f"del_cls_{c['id']}"):
                     ok, err = api.delete_clasificacion_activo(c['id'])
@@ -502,19 +540,48 @@ def _render_clasificaciones():
                     else:
                         notify_error(f"Error: {err}")
 
+    # Cargar cuentas contables para selectors
+    cuentas_data, _ = api.list_cuentas_contables()
+    cuentas_list = results(cuentas_data)
+    cta_opts = {None: "-- Sin cuenta --"}
+    for ct in cuentas_list:
+        cta_opts[ct['id']] = f"{ct.get('codigo_cuenta', '')} - {ct.get('descripcion', '')}"
+
     with st.form("form_nueva_cls", clear_on_submit=True):
         st.markdown("**➕ Nueva Clasificación**")
         nombre_cls = st.text_input("Nombre")
         desc_cls = st.text_input("Descripción")
         vida_cls = st.number_input("Vida Útil Default (años)", min_value=1, value=5)
 
+        st.markdown("**Cuentas Contables**")
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            cta_activo = st.selectbox("Cuenta Activo Fijo", list(cta_opts.keys()),
+                                       format_func=lambda x: cta_opts[x], key="cls_cta_activo")
+            cta_dep_acum = st.selectbox("Cuenta Dep. Acumulada", list(cta_opts.keys()),
+                                        format_func=lambda x: cta_opts[x], key="cls_cta_dep_acum")
+        with cc2:
+            cta_gasto = st.selectbox("Cuenta Gasto Depreciación", list(cta_opts.keys()),
+                                     format_func=lambda x: cta_opts[x], key="cls_cta_gasto")
+            cta_resultado = st.selectbox("Cuenta Resultado Baja", list(cta_opts.keys()),
+                                         format_func=lambda x: cta_opts[x], key="cls_cta_resultado")
+
         if st.form_submit_button("Crear"):
             if nombre_cls:
-                res, err = api.create_clasificacion_activo({
+                payload = {
                     "nombre": nombre_cls.strip(),
                     "descripcion": desc_cls,
                     "vida_util_default": vida_cls,
-                })
+                }
+                if cta_activo:
+                    payload["cuenta_activo"] = cta_activo
+                if cta_dep_acum:
+                    payload["cuenta_depreciacion_acumulada"] = cta_dep_acum
+                if cta_gasto:
+                    payload["cuenta_gasto_depreciacion"] = cta_gasto
+                if cta_resultado:
+                    payload["cuenta_resultado_baja"] = cta_resultado
+                res, err = api.create_clasificacion_activo(payload)
                 if err:
                     notify_error(f"Error: {err}")
                 else:

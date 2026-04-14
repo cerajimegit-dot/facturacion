@@ -11,6 +11,8 @@ REQUIRED_COLUMNS = {
     'productos': ['sku', 'nombre', 'precio_unitario'],
     'stock': ['sku', 'almacen_codigo', 'cantidad'],
     'ventas': ['numero', 'fecha', 'cliente_ruc', 'sku', 'cantidad', 'precio_unitario'],
+    'compras': ['numero', 'fecha', 'proveedor_ruc', 'proveedor_nombre', 'descripcion', 'cantidad', 'precio_unitario'],
+    'activos_fijos': ['codigo', 'nombre', 'tipo', 'valor_adquisicion', 'vida_util_anios', 'fecha_adquisicion'],
 }
 
 OPTIONAL_COLUMNS = {
@@ -24,7 +26,19 @@ OPTIONAL_COLUMNS = {
     ],
     'stock': ['empresa_codigo', 'ubicacion'],
     'ventas': [
-        'empresa_codigo', 'impuestos', 'estado', 'metodo_pago',
+        'empresa_codigo', 'impuestos', 'condicion_iva', 'estado', 'metodo_pago',
+        'cliente_nombre', 'esta_pagada',
+    ],
+    'compras': [
+        'proveedor_pais', 'proveedor_telefono', 'proveedor_email',
+        'almacen_codigo', 'moneda', 'cotizacion_usd',
+        'condicion_iva', 'sku', 'notas',
+    ],
+    'activos_fijos': [
+        'descripcion', 'moneda', 'valor_residual',
+        'clasificacion', 'ubicacion_planta', 'ubicacion_edificio', 'ubicacion_area',
+        'centro_costo_codigo', 'centro_costo_descripcion',
+        'numero_serie', 'numero_factura', 'propiedad_terceros',
     ],
 }
 
@@ -295,5 +309,161 @@ def validate_ventas_row(row, row_num, valid_rucs=None, valid_skus=None):
 
     metodo = row.get('metodo_pago', '')
     result.data['metodo_pago'] = str(metodo).strip() if not _is_blank(metodo) else ''
+
+    return result
+
+
+def validate_compras_row(row, row_num, existing_proveedores=None):
+    """Validate a single compras row."""
+    result = ValidationResult(row_num)
+    existing_proveedores = existing_proveedores or set()
+
+    # Required: numero
+    numero = row.get('numero')
+    if _is_blank(numero):
+        result.errors.append("'numero' es requerido")
+    else:
+        result.data['numero'] = str(numero).strip()
+
+    # Required: fecha
+    fecha, err = _parse_date(row.get('fecha'), 'fecha')
+    if err:
+        result.errors.append(err)
+    else:
+        result.data['fecha'] = fecha
+
+    # Required: proveedor_ruc
+    proveedor_ruc = row.get('proveedor_ruc')
+    if _is_blank(proveedor_ruc):
+        result.errors.append("'proveedor_ruc' es requerido")
+    else:
+        result.data['proveedor_ruc'] = str(proveedor_ruc).strip()
+
+    # Required: proveedor_nombre
+    proveedor_nombre = row.get('proveedor_nombre')
+    if _is_blank(proveedor_nombre):
+        result.errors.append("'proveedor_nombre' es requerido")
+    else:
+        result.data['proveedor_nombre'] = str(proveedor_nombre).strip()
+
+    # Required: descripcion
+    descripcion = row.get('descripcion')
+    if _is_blank(descripcion):
+        result.errors.append("'descripcion' es requerido")
+    else:
+        result.data['descripcion'] = str(descripcion).strip()
+
+    # Required: cantidad
+    cantidad, err = _parse_decimal(row.get('cantidad'), 'cantidad')
+    if err:
+        result.errors.append(err)
+    elif cantidad is not None and cantidad <= 0:
+        result.errors.append("'cantidad' debe ser mayor a 0")
+    else:
+        result.data['cantidad'] = cantidad
+
+    # Required: precio_unitario
+    precio, err = _parse_decimal(row.get('precio_unitario'), 'precio_unitario')
+    if err:
+        result.errors.append(err)
+    elif precio is not None and precio < 0:
+        result.errors.append("'precio_unitario' no puede ser negativo")
+    else:
+        result.data['precio_unitario'] = precio
+
+    # Optional fields
+    condicion = row.get('condicion_iva', 'gravada_10')
+    cond_str = str(condicion).strip() if not _is_blank(condicion) else 'gravada_10'
+    if cond_str not in ('gravada_10', 'gravada_5', 'exenta'):
+        result.warnings.append(f"condicion_iva '{cond_str}' no reconocida, se usará 'gravada_10'")
+        cond_str = 'gravada_10'
+    result.data['condicion_iva'] = cond_str
+
+    for field in ['proveedor_pais', 'proveedor_telefono', 'proveedor_email',
+                   'almacen_codigo', 'moneda', 'sku', 'notas']:
+        val = row.get(field)
+        result.data[field] = str(val).strip() if not _is_blank(val) else ''
+
+    cotiz, err = _parse_decimal(row.get('cotizacion_usd'), 'cotizacion_usd')
+    result.data['cotizacion_usd'] = cotiz if cotiz else None
+
+    return result
+
+
+def validate_activos_fijos_row(row, row_num):
+    """Validate a single activos_fijos row."""
+    result = ValidationResult(row_num)
+
+    # Required: codigo
+    codigo = row.get('codigo')
+    if _is_blank(codigo):
+        result.errors.append("'codigo' es requerido")
+    else:
+        result.data['codigo'] = str(codigo).strip()
+
+    # Required: nombre
+    nombre = row.get('nombre')
+    if _is_blank(nombre):
+        result.errors.append("'nombre' es requerido")
+    else:
+        result.data['nombre'] = str(nombre).strip()
+
+    # Required: tipo
+    tipo = row.get('tipo')
+    tipos_validos = ['it', 'planta', 'mobiliario', 'vehiculo', 'edificio', 'terreno', 'otro']
+    if _is_blank(tipo):
+        result.errors.append("'tipo' es requerido")
+    else:
+        tipo_str = str(tipo).strip().lower()
+        if tipo_str not in tipos_validos:
+            result.warnings.append(f"tipo '{tipo_str}' no estándar, se usará 'otro'")
+            tipo_str = 'otro'
+        result.data['tipo'] = tipo_str
+
+    # Required: valor_adquisicion
+    valor, err = _parse_decimal(row.get('valor_adquisicion'), 'valor_adquisicion')
+    if err:
+        result.errors.append(err)
+    elif valor is not None and valor <= 0:
+        result.errors.append("'valor_adquisicion' debe ser mayor a 0")
+    else:
+        result.data['valor_adquisicion'] = valor
+
+    # Required: vida_util_anios
+    vida, err = _parse_decimal(row.get('vida_util_anios'), 'vida_util_anios')
+    if err:
+        result.errors.append(err)
+    elif vida is not None and vida <= 0:
+        result.errors.append("'vida_util_anios' debe ser mayor a 0")
+    else:
+        result.data['vida_util_anios'] = int(vida) if vida else 5
+
+    # Required: fecha_adquisicion
+    fecha, err = _parse_date(row.get('fecha_adquisicion'), 'fecha_adquisicion')
+    if err:
+        result.errors.append(err)
+    else:
+        result.data['fecha_adquisicion'] = fecha
+
+    # Optional: valor_residual
+    residual, err = _parse_decimal(row.get('valor_residual', 0), 'valor_residual')
+    result.data['valor_residual'] = residual if residual else Decimal('0')
+
+    # Optional fields
+    for field in ['descripcion', 'moneda', 'clasificacion',
+                   'ubicacion_planta', 'ubicacion_edificio', 'ubicacion_area',
+                   'centro_costo_codigo', 'centro_costo_descripcion',
+                   'numero_serie', 'numero_factura']:
+        val = row.get(field)
+        result.data[field] = str(val).strip() if not _is_blank(val) else ''
+
+    # propiedad_terceros (boolean)
+    terceros = row.get('propiedad_terceros', False)
+    if isinstance(terceros, bool):
+        result.data['propiedad_terceros'] = terceros
+    elif isinstance(terceros, str):
+        result.data['propiedad_terceros'] = terceros.strip().lower() in ('si', 'sí', 'true', '1', 'yes')
+    else:
+        result.data['propiedad_terceros'] = bool(terceros)
 
     return result

@@ -180,6 +180,14 @@ class Asiento(TenantModel):
         related_name='asiento_contable',
         help_text="Venta que generó este asiento"
     )
+    gasto = models.ForeignKey(
+        'compras.Gasto',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='asientos_contables',
+        help_text="Gasto que generó este asiento"
+    )
     
     # Moneda
     moneda = models.CharField(

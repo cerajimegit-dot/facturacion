@@ -12,13 +12,14 @@ from apps.core.permissions import IsEmpresaMember
 from .models import (
     ClasificacionActivo, UbicacionActivo, CentroCosto,
     ActivoFijo, MovimientoActivo, MantenimientoActivo,
-    BajaActivo, DepreciacionMensual,
+    BajaActivo, DepreciacionMensual, ProcesoDepreciacion,
 )
 from .serializers import (
     ClasificacionActivoSerializer, UbicacionActivoSerializer,
     CentroCostoSerializer, ActivoFijoSerializer, ActivoFijoListSerializer,
     MovimientoActivoSerializer, MantenimientoActivoSerializer,
     BajaActivoSerializer, DepreciacionMensualSerializer,
+    ProcesoDepreciacionSerializer,
 )
 from .services import ActivoFijoService
 
@@ -39,7 +40,10 @@ class _IntegrityMixin:
 
 
 class ClasificacionActivoViewSet(_IntegrityMixin, TenantQuerySetMixin, viewsets.ModelViewSet):
-    queryset = ClasificacionActivo.objects.all()
+    queryset = ClasificacionActivo.objects.select_related(
+        'cuenta_activo', 'cuenta_depreciacion_acumulada',
+        'cuenta_gasto_depreciacion', 'cuenta_resultado_baja',
+    )
     serializer_class = ClasificacionActivoSerializer
     permission_classes = [IsAuthenticated, IsEmpresaMember]
     search_fields = ['nombre']
@@ -242,7 +246,13 @@ class ActivoFijoViewSet(_IntegrityMixin, TenantQuerySetMixin, viewsets.ModelView
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        registros = ActivoFijoService.calcular_depreciacion_mensual(empresa, anio, mes)
+        try:
+            registros = ActivoFijoService.calcular_depreciacion_mensual(
+                empresa, anio, mes, usuario=request.user
+            )
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         return Response({
             'mensaje': f'Depreciación calculada para {mes:02d}/{anio}.',
             'registros_creados': registros,
@@ -353,3 +363,12 @@ class DepreciacionMensualViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
             'registros': serializer.data,
             'total_depreciacion': str(totales['total_depreciacion'] or 0),
         })
+
+
+class ProcesoDepreciacionViewSet(TenantQuerySetMixin, viewsets.ModelViewSet):
+    queryset = ProcesoDepreciacion.objects.all()
+    serializer_class = ProcesoDepreciacionSerializer
+    permission_classes = [IsAuthenticated, IsEmpresaMember]
+    filterset_fields = ['anio', 'mes', 'estado']
+    ordering_fields = ['anio', 'mes']
+    http_method_names = ['get', 'head', 'options']
