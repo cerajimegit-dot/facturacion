@@ -13,26 +13,28 @@ eggs/
 venv/
 .env
 .venv/
+env/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*.md
 
 # Django
 *.sqlite3
+*.sqlite3-journal
 db.sqlite3
 media/
 staticfiles/
-logs/*.log
+logs/
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
+test_*.xlsx
 
 # OS
 .DS_Store
@@ -40,3 +42,48 @@ Thumbs.db
 
 # Docker
 *.pid
+
+# Archivos que no van al deploy
+_archive/
+Streamlit/
+Django/
+docs/
+archivos_eleva/
+examples/
+plantillas/
+piplog.txt
+auditoria.txt
+migration_output.log
+test_e2e_output.txt
+test_facturacion.db
+frontend-test.html
+
+# Scripts de utilidad local (no necesarios en Vercel)
+add_passive_accounts.py
+check_compra.py
+check_db.py
+clear_cache.py
+clear_streamlit_cache.py
+convert_excel.py
+demo_sesion_persistente.py
+deploy.py
+diagnostico_archivos.py
+diagnostico_stock.py
+get_empresa_id.py
+import_accounts.py
+inspect_excel.py
+inspect_sheets.py
+load_accounts_from_excel.py
+load_excel_accounts.py
+migrate.py
+quick_verify.py
+run_migrations.py
+setup_auto.py
+setup_contabilidad.py
+test_activos_exhaustivo.py
+verify_contabilidad.py
+verify_cuentas.py
+verify_session_persistence.py
+
+# Archivos grandes/innecesarios
+*.log
