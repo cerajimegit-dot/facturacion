@@ -33,6 +33,13 @@ STATIC_URL = '/static/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
+# WhiteNoise: servir estaticos sin collectstatic previo
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
+
 # Supabase Configuration
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
