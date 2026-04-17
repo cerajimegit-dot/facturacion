@@ -18,14 +18,10 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 ALLOWED_HOSTS = ['*']  # TODO: restringir despues de verificar que funciona
 SECRET_KEY = os.environ.get('SECRET_KEY', SECRET_KEY)
 
-# CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOWED_ORIGINS = [
-    "https://facturacion-app.vercel.app",
-    "https://*.vercel.app",
-    "http://localhost:8501",
-    "http://127.0.0.1:8501"
-]
+# CORS Configuration - permitir Streamlit Cloud y desarrollo local
+CORS_ALLOW_ALL_ORIGINS = True  # TODO: restringir cuando tengas los dominios finales
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = ['*']
 
 # Static and Media Files
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
