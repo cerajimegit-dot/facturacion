@@ -8,10 +8,14 @@ import dj_database_url
 DATABASES = {
     'default': dj_database_url.parse(os.environ.get('SUPABASE_URL', 'sqlite:///db.sqlite3'))
 }
+# Asegurar search_path y encoding para Supabase
+if DATABASES['default'].get('ENGINE', '').endswith('postgresql'):
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS']['options'] = '-c search_path=public -c client_encoding=UTF8'
 
 # Security Settings
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
-ALLOWED_HOSTS = ['*.vercel.app', 'localhost', '127.0.0.1', '0.0.0.0']
+ALLOWED_HOSTS = ['.vercel.app', 'localhost', '127.0.0.1', '0.0.0.0']
 SECRET_KEY = os.environ.get('SECRET_KEY', SECRET_KEY)
 
 # CORS Configuration
@@ -59,7 +63,7 @@ LOGGING = {
 # Session and Security
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
-SECURE_SSL_REDIRECT = not DEBUG
+SECURE_SSL_REDIRECT = False  # Vercel maneja SSL, no redirigir en Django
 
 # Performance
 USE_TZ = True
