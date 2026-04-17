@@ -15,7 +15,7 @@ if DATABASES['default'].get('ENGINE', '').endswith('postgresql'):
 
 # Security Settings
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
-ALLOWED_HOSTS = ['.vercel.app', 'localhost', '127.0.0.1', '0.0.0.0']
+ALLOWED_HOSTS = ['*']  # TODO: restringir despues de verificar que funciona
 SECRET_KEY = os.environ.get('SECRET_KEY', SECRET_KEY)
 
 # CORS Configuration
